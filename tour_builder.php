@@ -177,7 +177,7 @@ if (isset($_GET['del_gallery_img'])) {
 $stmt = $pdo->prepare("SELECT * FROM tours_catalog WHERE id = ?"); $stmt->execute([$tour_id]); $tour = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$tour) { die("Тур не найден."); }
 
-$guides = $pdo->query("SELECT * FROM guides ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$guides = $pdo->query("SELECT * FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
 $gallery = $pdo->query("SELECT * FROM tour_gallery WHERE tour_id = $tour_id ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -202,7 +202,7 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
             --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        body { font-family: 'Inter', 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 20px; }
+        body { font-family: 'Inter', 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 20px; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
         .container { max-width: 1350px; padding: 0; margin: 0 auto; box-sizing: border-box; }
         
         ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -217,7 +217,7 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
         .header-box { margin-bottom: 25px; }
         .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--primary); text-decoration: none; font-size: 14px; font-weight: 700; margin-bottom: 15px; transition: var(--transition); padding: 8px 16px; background: var(--primary-light); border-radius: 99px; }
         .back-link:hover { background: #E0E7FF; transform: translateX(-3px); }
-        h2 { margin: 0; font-size: 28px; font-weight: 800; color: var(--text-main); word-break: break-word; }
+        h2 { margin: 0; font-size: 28px; font-weight: 800; color: var(--text-main); word-break: break-word; letter-spacing: -0.02em;}
 
         .card { background: var(--card-bg); border-radius: var(--radius-lg); padding: 30px; box-shadow: var(--shadow-md); border: 1px solid var(--border); margin-bottom: 30px;}
         .section-title { font-size: 18px; font-weight: 800; color: var(--text-main); border-bottom: 2px solid #F1F5F9; padding-bottom: 10px; margin-top: 0; margin-bottom: 20px;}
@@ -226,27 +226,31 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
         
         .form-group { margin-bottom: 18px; }
         .form-group label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;}
-        .t-input { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: #F8FAFC; color: var(--text-main); box-sizing: border-box; font-family: inherit; font-weight: 500; transition: var(--transition);}
-        .t-input:focus { background: #fff; border-color: var(--primary); outline: none; box-shadow: 0 0 0 4px var(--primary-light);}
+        .t-input { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: #F8FAFC; color: var(--text-main); box-sizing: border-box; font-family: inherit; font-weight: 500; transition: var(--transition); outline: none;}
+        .t-input:focus { background: #fff; border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-light);}
         
-        .prices-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px;}
+        .prices-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; margin-bottom: 25px;}
         .price-card { background: #F8FAFC; padding: 15px; border-radius: var(--radius-md); border: 1px solid var(--border); position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px;}
-        .price-card::before { content:''; position:absolute; top:0; left:0; width:100%; height:4px; }
+        .price-card::before { content:''; position:absolute; top:0; left:0; width:4px; height:100%; border-radius: 4px 0 0 4px; }
         .price-card.c-direct::before { background: #10B981; }
         .price-card.c-site::before { background: #F59E0B; }
         .price-card.c-tripster::before { background: #3B82F6; }
         .price-card.c-sputnik::before { background: #8B5CF6; }
         .price-card label { margin:0; font-size:12px; font-weight:800; text-transform:uppercase;}
-        .price-card input { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 16px; font-weight: 700; width: 100%; box-sizing: border-box; outline: none;}
+        .price-card input { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 16px; font-weight: 700; width: 100%; box-sizing: border-box; outline: none; transition: var(--transition);}
+        .price-card input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
 
         .guide-checkboxes { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;}
         .hidden-cb { display: none; }
-        .guide-label { display: inline-flex; align-items: center; justify-content: center; background: #F8FAFC; padding: 10px 18px; border: 1px solid var(--border); border-radius: 99px; font-size: 13px; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: var(--transition); user-select: none;}
-        .hidden-cb:checked + .guide-label { background: var(--primary); color: white; border-color: var(--primary); box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);}
+        .guide-label { display: inline-flex; align-items: center; justify-content: center; background: #F8FAFC; padding: 10px 18px; border: 1px solid var(--border); border-radius: 99px; font-size: 13px; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: var(--transition); user-select: none; box-shadow: var(--shadow-sm);}
+        .hidden-cb:checked + .guide-label { background: var(--primary); color: white; border-color: var(--primary); box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25); transform: translateY(-1px);}
         .guide-label:hover { border-color: var(--primary); }
 
         .btn-save { background: var(--primary); color: white; padding: 14px 28px; border: none; border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; font-size: 15px; transition: var(--transition); box-shadow: 0 4px 10px rgba(79, 70, 229, 0.2);}
         .btn-save:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 6px 15px rgba(79, 70, 229, 0.3);}
+        
+        .btn-danger { color: #EF4444; font-size: 14px; font-weight: 700; text-decoration: none; padding: 12px 20px; border: 1px solid #FECACA; border-radius: var(--radius-sm); transition: var(--transition); background: #FEF2F2; display: inline-flex; align-items: center; gap: 8px;}
+        .btn-danger:hover { background: #FEE2E2; color: #DC2626; border-color: #FCA5A5; }
 
         .drop-zone { border: 2px dashed #CBD5E1; border-radius: var(--radius-md); padding: 30px 20px; text-align: center; background: #F8FAFC; cursor: pointer; transition: var(--transition); color: var(--text-muted); font-weight: 600; display: flex; flex-direction: column; align-items: center; gap: 10px;}
         .drop-zone.dragover { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
@@ -262,69 +266,61 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
         .module-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 15px; display: flex; gap: 15px; position: relative; transition: var(--transition); box-shadow: var(--shadow-sm); align-items: center;}
         
         .drag-handle { cursor: grab; font-size: 20px; color: #9CA3AF; display: flex; align-items: center; flex-shrink: 0; padding: 0 5px;}
+        .drag-handle:active { cursor: grabbing; color: var(--primary); }
         .mod-img { width: 85px; height: 85px; border-radius: var(--radius-sm); object-fit: cover; background: #F8FAFC; flex-shrink: 0; border: 1px solid var(--border);}
         .mod-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center;}
         .mod-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 10px;}
         .mod-title { font-weight: 800; font-size: 16px; margin: 0; color: var(--text-main); line-height: 1.2;}
-        .mod-timing { display: inline-block; background: var(--primary-light); color: var(--primary); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;}
+        .mod-timing { display: inline-block; background: var(--primary-light); color: var(--primary); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.03em;}
         .mod-desc { font-size: 13px; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; font-weight: 500; margin:0;}
         
         .mod-actions { display: flex; gap: 8px; flex-shrink: 0;}
-        .btn-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; background: #F8FAFC; color: #64748B; text-decoration: none;}
+        .btn-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; background: #F8FAFC; color: #64748B; text-decoration: none; transition: var(--transition);}
+        .btn-icon:hover { background: #F1F5F9; color: var(--text-main); transform: translateY(-1px); box-shadow: var(--shadow-sm);}
         .btn-icon.edit { background: var(--primary-light); color: var(--primary); }
+        .btn-icon.edit:hover { background: #E0E7FF; color: #3730A3; }
         .btn-icon.del { background: #FEF2F2; color: #EF4444; }
+        .btn-icon.del:hover { background: #FEE2E2; color: #DC2626; }
 
         .editor-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 25px; position: sticky; top: 20px; box-shadow: var(--shadow-md);}
-        .ql-toolbar.ql-snow { border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-color: var(--border); background: #F8FAFC; padding: 12px;}
-        .ql-container.ql-snow { border-radius: 0 0 var(--radius-sm) var(--radius-sm); border-color: var(--border); background: #fff; min-height: 220px; font-size: 14px;}
+        
+        /* Quill Override */
+        .ql-toolbar.ql-snow { border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-color: var(--border); background: #F8FAFC; padding: 12px; font-family: inherit;}
+        .ql-container.ql-snow { border-radius: 0 0 var(--radius-sm) var(--radius-sm); border-color: var(--border); background: #fff; min-height: 220px; font-size: 14px; font-family: inherit;}
+        .ql-editor.ql-blank::before { color: #94A3B8; font-style: normal; }
 
-        /* 👁️ И 🔗 ПЛАВАЮЩИЕ СВОРАЧИВАЮЩИЕСЯ КНОПКИ */
+        /* 👁️ И 🔗 ПЛАВАЮЩИЕ КНОПКИ */
         .preview-btn { 
-            position: fixed; 
-            right: 30px; 
-            max-width: 56px; 
-            height: 56px; 
-            background: var(--text-main); 
-            color: white; 
-            border-radius: 28px; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2); 
-            cursor: pointer; 
-            z-index: 9000; 
+            position: fixed; right: 30px; max-width: 56px; height: 56px; 
+            background: var(--text-main); color: white; border-radius: 28px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); cursor: pointer; z-index: 9000; 
             transition: max-width 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s, transform 0.3s, padding 0.4s; 
-            display: flex; 
-            align-items: center; 
-            border: 2px solid rgba(255,255,255,0.1);
-            text-decoration: none;
-            box-sizing: border-box;
-            font-family: inherit;
-            bottom: 30px;
-            overflow: hidden;
-            white-space: nowrap;
-            padding: 0 16px;
+            display: flex; align-items: center; border: 2px solid rgba(255,255,255,0.1);
+            text-decoration: none; box-sizing: border-box; font-family: inherit;
+            bottom: 30px; overflow: hidden; white-space: nowrap; padding: 0 16px;
         }
-
         .preview-btn svg { flex-shrink: 0; display: block; }
         .preview-btn span { font-weight: 800; font-size: 15px; margin-left: 12px; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; }
-        
         .preview-btn:hover { max-width: 300px; padding-right: 24px; transform: translateY(-3px); background: #000; color: white; }
         .preview-btn:hover span { opacity: 1; transition-delay: 0.15s; }
 
         .preview-btn.link-btn { bottom: 96px; background: #10B981; }
         .preview-btn.link-btn:hover { background: #059669; }
         
-        .preview-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.8); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(8px); padding: 20px; box-sizing: border-box; opacity: 0; transition: opacity 0.3s ease;}
+        .preview-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.7); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(4px); padding: 20px; box-sizing: border-box; opacity: 0; transition: opacity 0.3s ease;}
         .preview-overlay.show { opacity: 1; }
-        .preview-modal { background: #F8FAFC; width: 100%; max-width: 480px; height: 90vh; border-radius: 30px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; display: flex; flex-direction: column; position: relative; transform: translateY(20px); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);}
+        .preview-modal { background: #F8FAFC; width: 100%; max-width: 480px; height: 90vh; border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; display: flex; flex-direction: column; position: relative; transform: translateY(20px); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);}
         .preview-overlay.show .preview-modal { transform: translateY(0); }
         .preview-content { flex: 1; overflow-y: auto; padding: 0; background: #fff;}
         .prev-cover { width: 100%; height: 250px; object-fit: cover; background: #E2E8F0; }
         .prev-body { padding: 25px; }
         .prev-tag { display: inline-block; background: var(--primary-light); color: var(--primary); padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 800; margin-bottom: 10px; }
         .prev-title { font-size: 24px; font-weight: 900; color: var(--text-main); margin: 0 0 15px 0; line-height: 1.2;}
-        .close-preview { position: absolute; top: 15px; right: 15px; width: 36px; height: 36px; background: rgba(0,0,0,0.5); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; border: none; z-index: 10;}
+        .close-preview { position: absolute; top: 15px; right: 15px; width: 36px; height: 36px; background: rgba(0,0,0,0.5); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; border: none; z-index: 10; transition: var(--transition);}
+        .close-preview:hover { background: black; transform: scale(1.1); }
 
-        #toast-container { position: fixed; bottom: 24px; left: 24px; z-index: 10000; display: flex; flex-direction: column; gap: 12px; pointer-events: none;}
-        .toast { padding: 16px 24px; border-radius: var(--radius-md); color: white; font-weight: 600; font-size: 14px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); opacity: 0; transform: translateX(-100%); transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55); display: flex; align-items: center; gap: 12px; pointer-events: auto;}
+        #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 10000; display: flex; flex-direction: column; gap: 12px; pointer-events: none;}
+        .toast { padding: 16px 24px; border-radius: var(--radius-md); color: white; font-weight: 600; font-size: 14px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); opacity: 0; transform: translateX(100%); transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55); display: flex; align-items: center; gap: 12px; pointer-events: auto;}
         .toast.show { opacity: 1; transform: translateX(0); }
         .toast.success { background: #10B981; }
         .toast.error { background: #EF4444; }
@@ -344,10 +340,7 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
     <?php include 'navbar.php'; ?>
 
     <div class="header-box">
-        <a href="tours.php" class="back-link">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            Назад в каталог
-        </a>
+        <a href="tours.php" class="back-link">← Назад в каталог</a>
         <h2>Настройка: <?= htmlspecialchars($tour['name']) ?></h2>
     </div>
 
@@ -413,7 +406,7 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
                         <?php if(!empty($tour['main_image'])): ?>
                             <img src="<?= htmlspecialchars($tour['main_image']) ?>" id="current_main_img" style="height: 140px; width: 100%; border-radius: var(--radius-sm); object-fit: cover; margin-bottom: 10px; display: block; border:1px solid var(--border);">
                         <?php endif; ?>
-                        <input type="file" name="main_image" class="t-input" accept="image/*">
+                        <input type="file" name="main_image" class="t-input" accept="image/*" style="padding: 9px 12px;">
                     </div>
                     
                     <div class="form-group">
@@ -475,15 +468,18 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
                 </div>
             </div>
 
-            <div style="border-top: 1px solid #F1F5F9; margin-top: 30px; padding-top: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap:wrap; gap:20px;">
+            <div style="border-top: 1px solid var(--border); margin-top: 30px; padding-top: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap:wrap; gap:20px;">
                 <button type="submit" class="btn-save">💾 Сохранить общие настройки</button>
-                <a href="?id=<?= $tour_id ?>&delete_full_tour=1" onclick="return confirm('Вы уверены? Тур и все его этапы будут удалены навсегда!');" style="color: #EF4444; font-size: 14px; font-weight: 700; text-decoration: none; padding:10px; border: 1px solid #FECACA; border-radius: 6px;">Удалить тур целиком</a>
+                <a href="?id=<?= $tour_id ?>&delete_full_tour=1" class="btn-danger" onclick="return confirm('Вы уверены? Тур и все его этапы будут удалены навсегда!');">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    Удалить тур целиком
+                </a>
             </div>
         </form>
     </div>
 
-    <div style="margin-top: 50px; margin-bottom: 25px;">
-        <h2 style="font-size: 28px;">Конструктор маршрута (Этапы)</h2>
+    <div class="header-box" style="margin-top: 50px;">
+        <h2>Конструктор маршрута (Этапы)</h2>
     </div>
 
     <div class="builder-grid">
@@ -525,7 +521,7 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
         </div>
 
         <div class="editor-box">
-            <h3 id="formTitle" class="section-title" style="border:none; margin-bottom:15px; padding:0;">Добавить этап</h3>
+            <h3 id="formTitle" class="section-title" style="border:none; margin-bottom:15px; padding:0; justify-content:flex-start;">Добавить этап</h3>
             
             <form id="ajaxModuleForm">
                 <input type="hidden" name="save_module_ajax" value="1">
@@ -553,7 +549,7 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
                 </div>
 
                 <button type="submit" id="btnSaveModule" class="btn-save" style="width:100%; margin-top:10px;">Сохранить этап</button>
-                <button type="button" class="btn-reset" onclick="resetForm()">Отменить / Очистить форму</button>
+                <button type="button" class="btn-danger" onclick="resetForm()" style="width:100%; justify-content:center; margin-top:10px; background:transparent; border-color:transparent; color:var(--text-muted);">Отменить / Очистить</button>
             </form>
         </div>
     </div>
@@ -581,9 +577,14 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        const icon = type === 'success' ? `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>` : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+        
+        const icon = type === 'success' 
+            ? `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`
+            : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+            
         toast.innerHTML = icon + `<span>${message}</span>`;
         container.appendChild(toast);
+        
         setTimeout(() => toast.classList.add('show'), 10);
         setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 3000);
     }
@@ -614,7 +615,7 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
                 reader.readAsDataURL(file);
             }
         });
-        showToast(`Выбрано фото: ${files.length}. Не забудьте сохранить настройки!`, 'success');
+        showToast(`Выбрано фото: ${files.length}. Сохраните настройки!`, 'success');
     }
 
     var quill = new Quill('#quill-editor', {
@@ -733,7 +734,7 @@ $modules = $pdo->query("SELECT * FROM tour_modules WHERE tour_id = $tour_id ORDE
                 let mImg = m.querySelector('img.mod-img') ? m.querySelector('img.mod-img').src : '';
 
                 html += `<div style="margin-bottom:25px; position:relative;"><div style="position:absolute; left:-27px; top:4px; width:12px; height:12px; border-radius:50%; background:var(--primary); border:2px solid #fff;"></div>`;
-                if(mTiming) html += `<div style="font-size:12px; font-weight:700; color:var(--primary); margin-bottom:4px;">⏱ ${mTiming}</div>`;
+                if(mTiming) html += `<div style="font-size:12px; font-weight:700; color:var(--primary); margin-bottom:4px;">${mTiming}</div>`;
                 html += `<h4 style="font-size:16px; font-weight:800; margin:0 0 6px 0;">${mTitle}</h4>`;
                 if(mImg) html += `<img src="${mImg}" style="width:100%; height:120px; object-fit:cover; border-radius:8px; margin-bottom:8px;">`;
                 html += `<div style="font-size:14px; color:var(--text-muted);">${mText}</div></div>`;

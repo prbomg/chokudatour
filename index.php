@@ -20,7 +20,8 @@ $pdo->exec("SET SESSION group_concat_max_len = 10000;");
 try { $pdo->exec("ALTER TABLE expenses ADD COLUMN category VARCHAR(255) DEFAULT 'Прочее'"); } catch(PDOException $e) {}
 try { $pdo->exec("ALTER TABLE expenses ADD COLUMN description TEXT DEFAULT NULL"); } catch(PDOException $e) {}
 try { $pdo->exec("ALTER TABLE expenses ADD COLUMN receipt_path VARCHAR(255) DEFAULT NULL"); } catch(PDOException $e) {}
-// Добавляем колонку для времени, если ее нет
+
+// НОВЫЕ КОЛОНКИ ДЛЯ ВРЕМЕНИ
 try { $pdo->exec("ALTER TABLE events ADD COLUMN time VARCHAR(50) DEFAULT ''"); } catch(PDOException $e) {}
 try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN default_start_time VARCHAR(50) DEFAULT '10:00'"); } catch(PDOException $e) {}
 
@@ -116,10 +117,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 $guide = htmlspecialchars($ev['guide'] ?: 'Не назначен');
                 $guide_style = getGuideColorStyle($ev['guide']);
                 $income = number_format($ev['total_price'], 0, '', ' ') . ' ₽';
-                
                 $time_val = !empty($ev['time']) ? htmlspecialchars($ev['time']) : '';
                 $time_html = $time_val ? "<div style='color: var(--primary); font-size: 11px; font-weight: 700; margin-top: 4px;'>⏱ {$time_val}</div>" : "";
-
+                
                 $clients_html = '';
                 if (!empty($ev['clients_data'])) {
                     $clients = explode('||', $ev['clients_data']);
@@ -166,10 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 </tr>";
 
                 $html .= "<tr class='edit_e_{$ev['id']}' style='display:none; background:#F8FAFC;'>";
-                $html .= "<td>
-                            <input form='formEditE_{$ev['id']}' type='date' name='tour_date' class='t-input' value='".htmlspecialchars($ev['tour_date'])."' required style='margin-bottom:4px;'>
-                            <input form='formEditE_{$ev['id']}' type='time' name='time' class='t-input' value='".htmlspecialchars($ev['time'] ?? '')."'>
-                          </td>";
+                $html .= "<td><input form='formEditE_{$ev['id']}' type='date' name='tour_date' class='t-input' value='".htmlspecialchars($ev['tour_date'])."' required style='margin-bottom:4px;'><input form='formEditE_{$ev['id']}' type='time' name='time' class='t-input' value='".htmlspecialchars($ev['time'] ?? '')."'></td>";
                 $html .= "<td><select form='formEditE_{$ev['id']}' name='tour_id' class='t-input' required>";
                 foreach ($tours_list as $t) { $sel = $t['id'] == $ev['tour_id'] ? 'selected' : ''; $html .= "<option value='{$t['id']}' {$sel}>".htmlspecialchars($t['name'])."</option>"; }
                 $html .= "</select></td>";
@@ -273,7 +270,13 @@ if ($current_user_role === 'admin') {
     $sort_dir = isset($_GET['dir']) && $_GET['dir'] === 'desc' ? 'DESC' : 'ASC'; 
     $allowed_sorts = ['tour_date', 'tour_name', 'guide'];
     if (!in_array($sort_col, $allowed_sorts)) { $sort_col = 'tour_date'; }
-    $sql .= " ORDER BY $sort_col $sort_dir";
+    
+    // Сортировка времени вместе с датой
+    if ($sort_col === 'tour_date') {
+        $sql .= " ORDER BY tour_date $sort_dir, time ASC";
+    } else {
+        $sql .= " ORDER BY $sort_col $sort_dir";
+    }
 
     $stmt = $pdo->prepare($sql); $stmt->execute($params); $events = $stmt->fetchAll();
 
@@ -287,7 +290,7 @@ if ($current_user_role === 'admin') {
     $guide_name = $_SESSION['user_name'];
     $stmt_g = $pdo->prepare("SELECT e.*, t.name AS tour_name, t.duration, t.coordinates 
                              FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
-                             WHERE e.guide = ? AND e.tour_date >= CURDATE() ORDER BY e.tour_date ASC");
+                             WHERE e.guide = ? AND e.tour_date >= CURDATE() ORDER BY e.tour_date ASC, e.time ASC");
     $stmt_g->execute([$guide_name]);
     $guide_events = $stmt_g->fetchAll();
     $expense_cats = $pdo->query("SELECT name FROM expense_categories ORDER BY sort_order ASC")->fetchAll(PDO::FETCH_COLUMN);
@@ -357,18 +360,24 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         .filters { display: flex; gap: 12px; background: var(--card-bg); padding: 20px; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); margin-bottom: 30px; flex-wrap: wrap; align-items: flex-end; }
         .filter-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 130px; }
         .filter-group label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;}
+        
         .filter-group input, .filter-group select { padding: 11px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; outline: none; background: #F8FAFC; color: var(--text-main); font-weight: 500; transition: var(--transition); width: 100%; box-sizing: border-box; height: 40px;}
-        .filter-group select { cursor: pointer; font-weight: 600; }
+        .filter-group select { 
+            cursor: pointer; font-weight: 600; 
+            appearance: none; -webkit-appearance: none; -moz-appearance: none;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%2364748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>');
+            background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
+        }
         .filter-group input:focus, .filter-group select:focus, .filter-group select:hover { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px var(--primary-light); }
         
         .btn-filter { background: var(--primary); color: white; padding: 0 24px; border: none; border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; transition: var(--transition); box-shadow: 0 4px 10px rgba(79, 70, 229, 0.2); font-size: 13px; height: 40px; display: inline-flex; align-items: center; justify-content: center; margin-top: 19px;}
         .btn-filter:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 6px 15px rgba(79, 70, 229, 0.3);}
         
-        /* Идеальная SaaS Таблица */
-        .table-responsive { width: 100%; overflow-x: auto; max-height: 70vh; overflow-y: auto; background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);}
+        /* Идеальная SaaS Таблица с закрепленной шапкой */
+        .table-responsive { width: 100%; background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow-x: clip;}
         table { width: 100%; min-width: 950px; border-collapse: separate; border-spacing: 0; }
         th, td { padding: 16px 20px; text-align: left; font-size: 14px; vertical-align: middle; border-bottom: 1px solid #F1F5F9;}
-        th { position: sticky; top: 0; z-index: 10; background-color: rgba(255,255,255,0.95); backdrop-filter: blur(8px); font-weight: 700; font-size: 12px; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; cursor:pointer; box-shadow: 0 1px 0 #F1F5F9; letter-spacing: 0.05em;}
+        th { position: sticky; top: 0; z-index: 10; background-color: rgba(255,255,255,0.95); backdrop-filter: blur(8px); font-weight: 700; font-size: 12px; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; cursor:pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.05), 0 1px 0 #F1F5F9; letter-spacing: 0.05em;}
         tr:hover td { background-color: #F8FAFC; }
         tr:last-child td { border-bottom: none; }
         
@@ -412,6 +421,12 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         input.t-input, select.t-input { width: 100%; box-sizing: border-box; padding: 10px 14px; background: #FFFFFF; border: 1px solid #D1D5DB; border-radius: var(--radius-sm); font-size: 13px; font-family: inherit; outline: none; transition: var(--transition); color: var(--text-main); font-weight: 500; min-width: 0;}
         input.t-input:focus, select.t-input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-light); }
         
+        select.t-input {
+            appearance: none; -webkit-appearance: none; -moz-appearance: none;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%2364748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>');
+            background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
+        }
+
         .btn-add-submit { background: var(--text-main); color: white; border: none; padding: 10px 16px; border-radius: var(--radius-sm); font-weight: 600; font-size: 13px; cursor: pointer; width: 100%; transition: var(--transition); white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.15);}
         .btn-add-submit:hover { background: #1F2937; transform: translateY(-1px); box-shadow: 0 6px 15px rgba(0,0,0,0.2);}
 
@@ -424,7 +439,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         .empty-state h3 { font-size: 20px; color: var(--text-main); margin: 0 0 8px 0; font-weight: 800;}
         .empty-state p { font-size: 15px; margin: 0; }
 
-        /* Toast Уведомления (Без алертов!) */
+        /* Toast Уведомления */
         #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 10000; display: flex; flex-direction: column; gap: 12px; pointer-events: none;}
         .toast { padding: 16px 24px; border-radius: var(--radius-md); color: white; font-weight: 600; font-size: 14px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); opacity: 0; transform: translateX(100%) scale(0.9); transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); display: flex; align-items: center; gap: 12px; pointer-events: auto;}
         .toast.show { opacity: 1; transform: translateX(0) scale(1); }
@@ -465,7 +480,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         .g-btn-expense { background: var(--text-main); color: #FFFFFF; box-shadow: 0 4px 15px rgba(15, 23, 42, 0.2); } 
         .g-btn-expense:hover { background: #1E293B; box-shadow: 0 6px 20px rgba(15, 23, 42, 0.3); }
 
-        /* Модальные окна (Glassmorphism) */
+        /* Модальные окна */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.4); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); padding: 20px; box-sizing: border-box;}
         .modal-content { background: var(--card-bg); padding: 30px; border-radius: 24px; max-width: 420px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.2); transform: scale(0.95); animation: modalIn 0.2s forwards cubic-bezier(0.4, 0, 0.2, 1);}
         @keyframes modalIn { to { transform: scale(1); } }
@@ -475,6 +490,10 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         .btn-submit:hover { background: var(--primary-hover); }
         .btn-cancel { background: transparent; color: var(--text-muted); padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); font-weight: 600; font-size: 15px; width: 100%; cursor: pointer; margin-top: 10px; transition: var(--transition);}
         .btn-cancel:hover { background: #F8FAFC; color: var(--text-main); }
+
+        @media (max-width: 1024px) {
+            .table-responsive { overflow-x: auto; }
+        }
 
         @media (max-width: 768px) { 
             body { padding: 10px; } .container { padding: 10px; } 
@@ -527,7 +546,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 
     <?php if ($show_load_past): ?>
         <div id="loadPastContainer" style="margin-bottom: 20px;">
-            <button type="button" id="loadPastBtn" class="btn-load-more">⬆ Подгрузить прошедшие туры (5)</button>
+            <button type="button" id="loadPastBtn" class="btn-load-more">⬆ Прошедшие туры</button>
         </div>
     <?php endif; ?>
 
@@ -556,8 +575,16 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
             <tbody id="eventsTableBody">
                 
                 <tr class="add-form-row" id="add_event_row">
-                    <td><input form="ajaxAddEventForm" type="date" name="tour_date" class="t-input" required title="Дата экскурсии"></td>
-                    <td><select form="ajaxAddEventForm" name="tour_id" class="t-input" required title="Название тура"><option value="" disabled selected>Выберите тур...</option><?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?></select></td>
+                    <td style="display:flex; gap:5px; border-bottom: none;">
+                        <input form="ajaxAddEventForm" type="date" name="tour_date" class="t-input" required title="Дата экскурсии" style="flex:1;">
+                        <input form="ajaxAddEventForm" type="time" name="time" id="add_time" class="t-input" title="Время старта (оставьте пустым для автоподстановки)" style="width:auto;" oninput="this.dataset.manual='1'">
+                    </td>
+                    <td>
+                        <select form="ajaxAddEventForm" name="tour_id" id="add_tour_id" class="t-input" required title="Название тура" onchange="updateDefaultTime()">
+                            <option value="" disabled selected>Выберите тур...</option>
+                            <?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?>
+                        </select>
+                    </td>
                     <td><select form="ajaxAddEventForm" name="guide" class="t-input" required title="Назначить гида"><option value="" disabled selected>Гид...</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></td>
                     <td colspan="3"><input form="ajaxAddEventForm" type="text" name="notes" class="t-input" placeholder="Примечание (опционально)..."></td>
                     <td colspan="2"><button form="ajaxAddEventForm" type="submit" class="btn-add-submit" id="submitAddBtn">Сохранить тур</button></td>
@@ -685,7 +712,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 
     <?php if ($show_load_past): ?>
         <div id="loadPastContainer" style="margin-bottom: 20px;">
-            <button type="button" id="loadPastBtn" class="btn-load-more">⬆ Подгрузить прошедшие туры (5)</button>
+            <button type="button" id="loadPastBtn" class="btn-load-more">⬆ Прошедшие туры</button>
         </div>
     <?php endif; ?>
 
@@ -713,14 +740,15 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         ?>
         <div class="g-card">
             <div class="g-card-date">
-                <?= $date_str ?>
+                <?= $date_str ?> 
                 <?php if (!empty($ev['time'])) echo " • " . htmlspecialchars($ev['time']); ?>
             </div>
             <h2 class="g-card-title"><?= htmlspecialchars($ev['tour_name']) ?></h2>
             
             <div class="g-card-meta">
                 <?php if ($ev['duration']): ?><span>⏱ Тайминг: <?= htmlspecialchars($ev['duration']) ?></span><?php endif; ?>
-                <?php if ($ev['coordinates']): ?><span>📍 Старт: <?= htmlspecialchars($ev['coordinates']) ?></span><?php endif; ?>
+                <?php if (!empty($ev['time'])): ?><span>⏰ Старт: <?= htmlspecialchars($ev['time']) ?></span><?php endif; ?>
+                <?php if ($ev['coordinates']): ?><span>📍 Старт (точка): <?= htmlspecialchars($ev['coordinates']) ?></span><?php endif; ?>
             </div>
 
             <div class="g-tourists">
@@ -739,8 +767,8 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                             <span class="g-tourist-seats"><?= $t['seats'] ?> чел.</span>
                         </div>
                         <div class="g-tourist-actions">
-                            <a href="tel:<?= htmlspecialchars($t['phone']) ?>" class="g-btn-icon g-btn-call">📞</a>
-                            <a href="https://wa.me/<?= $clean_phone ?>" target="_blank" class="g-btn-icon g-btn-wa">💬</a>
+                            <a href="tel:<?= htmlspecialchars($t['phone']) ?>" class="g-btn-icon g-btn-call" title="Позвонить">📞</a>
+                            <a href="https://wa.me/<?= $clean_phone ?>" target="_blank" class="g-btn-icon g-btn-wa" title="WhatsApp">💬</a>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -748,10 +776,10 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 
             <div class="g-card-actions">
                 <a href="event.php?id=<?= $ev['id'] ?>" class="g-btn g-btn-route">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Детали
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Детали тура
                 </a>
                 <button type="button" class="g-btn g-btn-expense" onclick="openExpenseModal(<?= $ev['id'] ?>, '<?= htmlspecialchars($ev['tour_name'], ENT_QUOTES) ?>')">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg> Чек
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg> Внести чек
                 </button>
             </div>
         </div>
@@ -787,6 +815,19 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 </div>
 
 <script>
+    // Подстановка дефолтного времени
+    const tourTimes = {
+        <?php if(isset($tours)) { foreach($tours as $t) echo $t['id'] . ": '" . addslashes($t['default_start_time'] ?? '') . "',\n"; } ?>
+    };
+
+    function updateDefaultTime() {
+        const tId = document.getElementById('add_tour_id').value;
+        const timeInp = document.getElementById('add_time');
+        if (tourTimes[tId] && !timeInp.dataset.manual) {
+            timeInp.value = tourTimes[tId];
+        }
+    }
+
     // Показ Toast уведомления
     function showToast(message, type = 'success') {
         const container = document.getElementById('toast-container');

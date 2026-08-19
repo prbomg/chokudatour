@@ -140,8 +140,9 @@ function getGuideColor($guideName) {
         .tour-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); transition: var(--transition); display: flex; flex-direction: column; position: relative;}
         .tour-card:hover { transform: translateY(-4px); border-color: #CBD5E1; box-shadow: var(--shadow-md);}
         
-        .tour-cover-wrap { width: 100%; height: 180px; background: #E2E8F0; position: relative; overflow: hidden;}
-        .tour-cover { width: 100%; height: 100%; object-fit: cover; transition: var(--transition);}
+        /* ИСПРАВЛЕННАЯ ОБЛОЖКА (Без обрезки) */
+        .tour-cover-wrap { width: 100%; aspect-ratio: 16/9; background: #E2E8F0; position: relative; overflow: hidden;}
+        .tour-cover { width: 100%; height: 100%; object-fit: cover; object-position: center; transition: var(--transition);}
         .tour-card:hover .tour-cover { transform: scale(1.03); }
         .tour-cover-empty { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 13px; font-weight: 600; background: #F1F5F9;}
         
@@ -167,7 +168,6 @@ function getGuideColor($guideName) {
         .tour-actions { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid #F1F5F9; padding-top: 15px;}
         .btn-icon-action { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; text-decoration: none; transition: var(--transition); border: none; cursor: pointer;}
         
-        /* Стили для новых иконок */
         .btn-link { background: #ECFDF5; color: #047857; } .btn-link:hover { background: #D1FAE5; transform: translateY(-2px); }
         .btn-prev { background: #F3F4F6; color: #4B5563; } .btn-prev:hover { background: #E5E7EB; transform: translateY(-2px); color: #111827; }
         .btn-edit { background: var(--primary-light); color: var(--primary); } .btn-edit:hover { background: #E0E7FF; transform: translateY(-2px); }
@@ -185,17 +185,9 @@ function getGuideColor($guideName) {
         .prev-title { font-size: 24px; font-weight: 900; color: var(--text-main); margin: 0 0 15px 0; line-height: 1.2;}
         .prev-desc { font-size: 15px; color: var(--text-muted); line-height: 1.6; margin-bottom: 25px;}
         .close-preview { position: absolute; top: 15px; right: 15px; width: 36px; height: 36px; background: rgba(0,0,0,0.5); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; backdrop-filter: blur(4px); font-weight: bold; border: none; z-index: 10;}
-
-        #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 10000; display: flex; flex-direction: column; gap: 12px; pointer-events: none;}
-        .toast { padding: 16px 24px; border-radius: var(--radius-md); color: white; font-weight: 600; font-size: 14px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); opacity: 0; transform: translateX(100%); transition: all 0.3s ease; display: flex; align-items: center; gap: 12px; pointer-events: auto;}
-        .toast.show { opacity: 1; transform: translateX(0); }
-        .toast.success { background: #10B981; }
-        .toast.error { background: #EF4444; }
     </style>
 </head>
 <body>
-
-<div id="toast-container"></div>
 
 <div class="container">
     <?php include 'navbar.php'; ?>
@@ -370,31 +362,6 @@ function getGuideColor($guideName) {
             document.body.style.overflow = '';
         }, 300);
     }
-
-    function showToast(message, type = 'success') {
-        const container = document.getElementById('toast-container');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        const icon = type === 'success' ? `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>` : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
-        toast.innerHTML = icon + `<span>${message}</span>`;
-        container.appendChild(toast);
-        setTimeout(() => toast.classList.add('show'), 10);
-        setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 3000);
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const msg = urlParams.get('msg');
-        if (msg) {
-            const messages = {
-                'tour_deleted': 'Тур удален из каталога.',
-                'cannot_delete': 'Нельзя удалить: по этому туру есть экскурсии!',
-                'tour_duplicated': 'Тур успешно скопирован со всеми этапами!'
-            };
-            if (messages[msg]) showToast(messages[msg], msg === 'cannot_delete' ? 'error' : 'success');
-            window.history.replaceState({}, document.title, window.location.pathname);
-        }
-    });
 </script>
 
 </body>
