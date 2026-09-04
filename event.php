@@ -205,8 +205,12 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
 
         .event-header { background: linear-gradient(135deg, #EEF2FF, #E0E7FF); border: 1px solid #C7D2FE; border-radius: 20px; padding: 30px; margin-bottom: 30px; box-shadow: var(--shadow-md); position: relative; overflow: hidden; }
         .event-title-row { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; }
-        .event-title-row h1 { margin: 0; font-size: 28px; font-weight: 800; color: #1E1B4B; letter-spacing: -0.02em; }
+        .event-title-row h1 { margin: 0; font-size: 28px; font-weight: 900; color: #1E1B4B; letter-spacing: -0.02em; }
         .event-date-badge { background: var(--primary); color: white; padding: 8px 18px; border-radius: 99px; font-weight: 700; font-size: 14px; white-space: nowrap; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3); }
+
+        /* ИСПРАВЛЕНА ЛОГИКА: ПЛАШКА "К ПОЛУЧЕНИЮ" ТЕПЕРЬ ПОКАЗЫВАЕТ СТРОГО СУММУ ЦЕН ($total_income) БЕЗ ВЫЧЕТА РАСХОДОВ */
+        .profit-badge { display: inline-flex; align-items: center; gap: 10px; background: #10B981; color: white; padding: 12px 20px; border-radius: 12px; font-size: 22px; font-weight: 900; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); margin-top: 15px; margin-bottom: 15px;}
+        .profit-badge span { font-size: 13px; font-weight: 700; text-transform: uppercase; opacity: 0.9; letter-spacing: 0.05em; }
 
         .guide-select-box { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; flex-wrap: wrap; color: #3730A3; background: rgba(255,255,255,0.5); padding: 10px 15px; border-radius: var(--radius-sm); border: 1px solid #C7D2FE;}
         .guide-select-box label { font-size: 12px; font-weight: 700; text-transform: uppercase; color: #4338CA; margin-right: 4px;}
@@ -256,7 +260,10 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
         
         .btn-edit { background: var(--primary-light); color: var(--primary); } .btn-edit:hover { background: #E0E7FF; color: #3730A3; }
         .btn-del { background: #FEF2F2; color: #EF4444; } .btn-del:hover { background: #FEE2E2; color: #DC2626; }
-        .btn-wa { background: #DCFCE7; color: #16A34A; } .btn-wa:hover { background: #BBF7D0; color: #15803D; }
+        
+        /* Увеличенная зеленая кнопка WhatsApp для мобильных */
+        .btn-wa { background: #10B981; color: white; padding: 0 12px; width: auto; font-weight: 700; font-size: 12px; box-shadow: 0 2px 5px rgba(16,185,129,0.3);} 
+        .btn-wa:hover { background: #059669; color: white; }
 
         .client-link { color: var(--text-main); font-weight: 700; text-decoration: none; transition: var(--transition); }
         .client-link:hover { color: var(--primary); text-decoration: underline; }
@@ -275,7 +282,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
             .container { padding: 10px; }
             .scroll-hint { display: block; }
             .event-title-row { flex-direction: column; align-items: flex-start; gap: 12px; }
-            .event-title-row h1 { font-size: 22px; line-height: 1.2; }
+            .event-title-row h1 { font-size: 24px; line-height: 1.2; }
             .dash-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
             .dash-card { padding: 16px; }
             .dash-val { font-size: 20px; }
@@ -304,6 +311,11 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                 <?php endif; ?>
             </div>
             <div class="event-date-badge">🗓 <?= $date_formatted ?></div>
+        </div>
+
+        <div class="profit-badge">
+            <span>К получению:</span> 
+            <?= number_format($total_income, 0, '', ' ') ?> ₽
         </div>
 
         <?php if ($current_user_role === 'admin'): ?>
@@ -346,13 +358,14 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
         <?php endif; ?>
     </div>
 
+    <?php if ($current_user_role === 'admin'): ?>
     <div class="dash-grid">
         <div class="dash-card profit">
-            <div class="dash-title">Прибыль тура</div>
+            <div class="dash-title">Чистая прибыль (после расходов)</div>
             <div class="dash-val val-green"><?= number_format($profit, 0, '', ' ') ?> ₽</div>
         </div>
         <div class="dash-card">
-            <div class="dash-title">Собрано денег</div>
+            <div class="dash-title">К получению от туристов</div>
             <div class="dash-val"><?= number_format($total_income, 0, '', ' ') ?> ₽</div>
         </div>
         <div class="dash-card">
@@ -364,6 +377,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
             <div class="dash-val"><?= $total_seats ?> чел.</div>
         </div>
     </div>
+    <?php endif; ?>
 
     <form id="formAddParticipant" method="POST"><input type="hidden" name="add_participant" value="1"></form>
     
@@ -391,7 +405,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         <th>Источник</th>
                         <th>Статус</th>
                         <th>Примечание</th>
-                        <th style="text-align: right; width: 130px;">Действия</th>
+                        <th style="text-align: right; width: 150px;">Действия</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -425,6 +439,13 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
                         $p_name = $p['name'] ?? $p['client_name'] ?? '';
                         $p_places = $p['places'] ?? $p['seats'] ?? 1;
+
+                        // ГЕНЕРИРУЕМ ТЕКСТ ДЛЯ WHATSAPP
+                        $wa_text = "Здравствуйте, " . explode(' ', $p_name)[0] . "! Жду вас завтра в " . ($event[$time_col] ?? 'назначенное время') . " на экскурсию.";
+                        if (!empty($event['coordinates'])) {
+                            $wa_text .= " Место встречи: " . $event['coordinates'];
+                        }
+                        $wa_link = "https://wa.me/{$clean_phone}?text=" . rawurlencode($wa_text);
                     ?>
                     <tr class="view_p_<?= $p_id ?>" style="<?= ($p['status'] ?? '') === 'Отмена' ? 'opacity: 0.5;' : '' ?>">
                         <td><a href="client.php?phone=<?= urlencode($p['phone'] ?? '') ?>" class="client-link"><?= htmlspecialchars($p_name) ?></a></td>
@@ -439,15 +460,18 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         <td style="color: var(--text-muted); font-size: 13px;"><?= !empty($p['notes']) ? htmlspecialchars($p['notes']) : '—' ?></td>
                         <td style="text-align: right; white-space: nowrap;">
                             <div class="action-cell">
-                                <a href="https://wa.me/<?= $clean_phone ?>" target="_blank" class="btn-icon btn-wa" title="WhatsApp">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.3 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                                <a href="<?= $wa_link ?>" target="_blank" class="btn-icon btn-wa" title="Написать в WhatsApp">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.3 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg> 
+                                    Написать
                                 </a>
                                 <button type="button" class="btn-icon btn-edit" onclick="toggleEditP(<?= $p_id ?>)" title="Редактировать">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                 </button>
+                                <?php if ($current_user_role === 'admin'): ?>
                                 <a href="?id=<?= $event_id ?>&del_participant=<?= $p_id ?>" class="btn-icon btn-del" onclick="return confirm('Удалить туриста?');" title="Удалить">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                                 </a>
+                                <?php endif; ?>
                             </div>
                         </td>
                     </tr>

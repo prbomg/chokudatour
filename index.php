@@ -56,6 +56,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_add_event']) && 
         $tour_id = $_POST['tour_id']; 
         $guide = $_POST['guide']; 
         $notes = trim($_POST['notes'] ?? '');
+
+        require_once 'telegram.php';
+$tour_name = $pdo->query("SELECT name FROM tours_catalog WHERE id = $tour_id")->fetchColumn();
+$msg = "🆕 <b>Новая заявка создана вручную!</b>\n";
+$msg .= "Тур: {$tour_name}\n";
+$msg .= "Дата: {$tour_date} в {$time}\n";
+$msg .= "Гид: {$guide}";
+sendTelegramMessage($msg);
         
         if (empty($tour_date) || empty($tour_id) || empty($guide)) { echo json_encode(['status' => 'error', 'message' => 'Заполните обязательные поля']); exit; }
 
@@ -95,14 +103,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
-        $past_events = $stmt->fetchAll();
+        $past_events = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $past_events = array_reverse($past_events);
         
         $html = '';
         $forms = '';
 
         if ($current_user_role === 'admin') {
-            $tours_list = $pdo->query("SELECT id, name FROM tours_catalog ORDER BY sort_order ASC, name ASC")->fetchAll();
+            $tours_list = $pdo->query("SELECT id, name FROM tours_catalog ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
             $guides_list = $pdo->query("SELECT name FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_COLUMN);
         }
 
@@ -143,14 +151,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 $forms .= "<form id='formEditE_{$ev['id']}' method='POST'><input type='hidden' name='update_event' value='1'><input type='hidden' name='event_id' value='{$ev['id']}'></form>";
                 
                 $html .= "<tr class='view_e_{$ev['id']} past-event-row'>
-                    <td style='white-space: nowrap;'><strong style='color:#64748B;'>{$date_formatted}</strong>{$time_html}</td>
-                    <td><a href='event.php?id={$ev['id']}' class='link-tour' style='color:#475569;'>{$tour_name}</a></td>
-                    <td><span class='guide-tag' style='{$guide_style} opacity: 0.8;'>{$guide}</span></td>
-                    <td><span class='seats-badge' style='background:#F1F5F9; color:#475569;'>{$ev['seats_count']}</span></td>
-                    <td class='col-price' style='color: #059669; opacity: 0.8;'>{$income}</td>
-                    <td>{$clients_html}</td>
-                    <td class='col-note'>{$note_html}</td>
-                    <td style='text-align: right; white-space: nowrap;'>
+                    <td data-label='Дата' style='white-space: nowrap;'><strong style='color:#64748B;'>{$date_formatted}</strong>{$time_html}</td>
+                    <td data-label='Тур'><a href='event.php?id={$ev['id']}' class='link-tour' style='color:#475569;'>{$tour_name}</a></td>
+                    <td data-label='Гид'><span class='guide-tag' style='{$guide_style} opacity: 0.8;'>{$guide}</span></td>
+                    <td data-label='Мест'><span class='seats-badge' style='background:#F1F5F9; color:#475569;'>{$ev['seats_count']}</span></td>
+                    <td data-label='Доход' class='col-price' style='color: #059669; opacity: 0.8;'>{$income}</td>
+                    <td data-label='Туристы'>{$clients_html}</td>
+                    <td data-label='Примечание' class='col-note'>{$note_html}</td>
+                    <td data-label='Действия' style='text-align: right; white-space: nowrap;'>
                         <div class='action-cell'>
                             <a href='event.php?id={$ev['id']}' class='btn-icon btn-view' title='Открыть'>
                                 <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg>
@@ -165,19 +173,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                     </td>
                 </tr>";
 
-                $html .= "<tr class='edit_e_{$ev['id']}' style='display:none; background:#F8FAFC;'>";
-                $html .= "<td><input form='formEditE_{$ev['id']}' type='date' name='tour_date' class='t-input' value='".htmlspecialchars($ev['tour_date'])."' required style='margin-bottom:4px;'><input form='formEditE_{$ev['id']}' type='time' name='time' class='t-input' value='".htmlspecialchars($ev['time'] ?? '')."'></td>";
-                $html .= "<td><select form='formEditE_{$ev['id']}' name='tour_id' class='t-input' required>";
+                $html .= "<tr class='edit_e_{$ev['id']} edit_form_row' style='display:none; background:#F8FAFC;'>";
+                $html .= "<td data-label='Дата / Время'><input form='formEditE_{$ev['id']}' type='date' name='tour_date' class='t-input' value='".htmlspecialchars($ev['tour_date'])."' required style='margin-bottom:4px;'><input form='formEditE_{$ev['id']}' type='time' name='time' class='t-input' value='".htmlspecialchars($ev['time'] ?? '')."'></td>";
+                $html .= "<td data-label='Тур'><select form='formEditE_{$ev['id']}' name='tour_id' class='t-input' required>";
                 foreach ($tours_list as $t) { $sel = $t['id'] == $ev['tour_id'] ? 'selected' : ''; $html .= "<option value='{$t['id']}' {$sel}>".htmlspecialchars($t['name'])."</option>"; }
                 $html .= "</select></td>";
-                $html .= "<td><select form='formEditE_{$ev['id']}' name='guide' class='t-input' required><option value='Не назначен' ".($ev['guide'] === 'Не назначен' ? 'selected' : '').">Не назначен</option>";
+                $html .= "<td data-label='Гид'><select form='formEditE_{$ev['id']}' name='guide' class='t-input' required><option value='Не назначен' ".($ev['guide'] === 'Не назначен' ? 'selected' : '').">Не назначен</option>";
                 foreach ($guides_list as $g) { $sel = $ev['guide'] === $g ? 'selected' : ''; $html .= "<option value='".htmlspecialchars($g)."' {$sel}>".htmlspecialchars($g)."</option>"; }
                 $html .= "</select></td>";
-                $html .= "<td><span class='seats-badge'>{$ev['seats_count']}</span></td>";
-                $html .= "<td class='col-price' style='color: #059669;'>{$income}</td>";
-                $html .= "<td>{$clients_html}</td>";
-                $html .= "<td><input form='formEditE_{$ev['id']}' type='text' name='notes' class='t-input' value='".htmlspecialchars($ev['notes'], ENT_QUOTES)."'></td>";
-                $html .= "<td style='text-align: right; white-space: nowrap;'><div class='action-cell'>
+                $html .= "<td data-label='Мест'><span class='seats-badge'>{$ev['seats_count']}</span></td>";
+                $html .= "<td data-label='Доход' class='col-price' style='color: #059669;'>{$income}</td>";
+                $html .= "<td data-label='Туристы'>{$clients_html}</td>";
+                $html .= "<td data-label='Примечание'><input form='formEditE_{$ev['id']}' type='text' name='notes' class='t-input' value='".htmlspecialchars($ev['notes'], ENT_QUOTES)."'></td>";
+                $html .= "<td data-label='Действия' style='text-align: right; white-space: nowrap;'><div class='action-cell'>
                             <button form='formEditE_{$ev['id']}' type='submit' class='btn-icon btn-view' title='Сохранить'>
                                 <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'></polyline></svg>
                             </button> 
@@ -190,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
             } else {
                 $p_stmt = $pdo->prepare("SELECT * FROM participants WHERE event_id = ? AND status != 'Отмена'");
                 $p_stmt->execute([$ev['id']]);
-                $tourists = $p_stmt->fetchAll();
+                $tourists = $p_stmt->fetchAll(PDO::FETCH_ASSOC);
                 
                 $html .= "<div class='g-card past-event-card'>";
                 
@@ -207,7 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                     $clean_phone = preg_replace('/[^0-9]/', '', $t['phone']);
                     if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
                     $html .= "<div class='g-tourist-row'>";
-                    $html .= "<div class='g-tourist-info'><span class='g-tourist-name'>" . htmlspecialchars($t['client_name']) . "</span><span class='g-tourist-seats'>{$t['seats']} чел.</span></div>";
+                    $html .= "<div class='g-tourist-info'><span class='g-tourist-name'>" . htmlspecialchars($t['client_name'] ?? $t['name'] ?? '') . "</span><span class='g-tourist-seats'>{$t['seats']} чел.</span></div>";
                     $html .= "<div class='g-tourist-actions'><a href='tel:{$t['phone']}' class='g-btn-icon g-btn-call'>📞</a><a href='https://wa.me/{$clean_phone}' target='_blank' class='g-btn-icon g-btn-wa'>💬</a></div>";
                     $html .= "</div>";
                 }
@@ -223,6 +231,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
     } catch (Exception $e) { echo json_encode(['status' => 'error', 'message' => $e->getMessage()]); }
     exit;
 }
+
+// Получаем категории расходов для всех ролей
+$expense_cats = [];
+try {
+    $expense_cats = $pdo->query("SELECT name FROM expense_categories ORDER BY sort_order ASC")->fetchAll(PDO::FETCH_COLUMN);
+} catch (Exception $e) {}
 
 // --- ДОБАВЛЕНИЕ РАСХОДА (ДЛЯ ГИДОВ) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_expense'])) {
@@ -249,8 +263,8 @@ $show_load_past = empty($_GET['date_from']) && empty($_GET['date_to']);
 
 // --- ПОДГОТОВКА ДАННЫХ ---
 if ($current_user_role === 'admin') {
-    $tours = $pdo->query("SELECT * FROM tours_catalog ORDER BY sort_order ASC, name ASC")->fetchAll();
-    $guides = $pdo->query("SELECT * FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll();
+    $tours = $pdo->query("SELECT * FROM tours_catalog ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $guides = $pdo->query("SELECT * FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
     $sql = "SELECT e.*, t.name AS tour_name,
             COALESCE((SELECT SUM(seats) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
@@ -278,7 +292,7 @@ if ($current_user_role === 'admin') {
         $sql .= " ORDER BY $sort_col $sort_dir";
     }
 
-    $stmt = $pdo->prepare($sql); $stmt->execute($params); $events = $stmt->fetchAll();
+    $stmt = $pdo->prepare($sql); $stmt->execute($params); $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $dash_tours = count($events); $dash_clients = 0; $dash_income = 0; $dash_expenses = 0;
     foreach ($events as $ev) { $dash_clients += $ev['seats_count']; $dash_income += $ev['total_price']; }
@@ -292,8 +306,7 @@ if ($current_user_role === 'admin') {
                              FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
                              WHERE e.guide = ? AND e.tour_date >= CURDATE() ORDER BY e.tour_date ASC, e.time ASC");
     $stmt_g->execute([$guide_name]);
-    $guide_events = $stmt_g->fetchAll();
-    $expense_cats = $pdo->query("SELECT name FROM expense_categories ORDER BY sort_order ASC")->fetchAll(PDO::FETCH_COLUMN);
+    $guide_events = $stmt_g->fetchAll(PDO::FETCH_ASSOC);
 }
 
 // Быстрые даты
@@ -421,12 +434,6 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         input.t-input, select.t-input { width: 100%; box-sizing: border-box; padding: 10px 14px; background: #FFFFFF; border: 1px solid #D1D5DB; border-radius: var(--radius-sm); font-size: 13px; font-family: inherit; outline: none; transition: var(--transition); color: var(--text-main); font-weight: 500; min-width: 0;}
         input.t-input:focus, select.t-input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-light); }
         
-        select.t-input {
-            appearance: none; -webkit-appearance: none; -moz-appearance: none;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%2364748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>');
-            background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
-        }
-
         .btn-add-submit { background: var(--text-main); color: white; border: none; padding: 10px 16px; border-radius: var(--radius-sm); font-weight: 600; font-size: 13px; cursor: pointer; width: 100%; transition: var(--transition); white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.15);}
         .btn-add-submit:hover { background: #1F2937; transform: translateY(-1px); box-shadow: 0 6px 15px rgba(0,0,0,0.2);}
 
@@ -491,21 +498,57 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         .btn-cancel { background: transparent; color: var(--text-muted); padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); font-weight: 600; font-size: 15px; width: 100%; cursor: pointer; margin-top: 10px; transition: var(--transition);}
         .btn-cancel:hover { background: #F8FAFC; color: var(--text-main); }
 
-        @media (max-width: 1024px) {
-            .table-responsive { overflow-x: auto; }
-        }
-
+        /* МАГИЯ ДЛЯ АДМИНСКОЙ ТАБЛИЦЫ НА МОБИЛЬНЫХ ТЕЛЕФОНАХ (ПРЕВРАЩЕНИЕ В КАРТОЧКИ) */
         @media (max-width: 768px) { 
             body { padding: 10px; } .container { padding: 10px; } 
-            .add-form-row td { display: block; width: 100%; box-sizing: border-box; padding: 10px 15px; border-bottom: none; }
-            .add-form-row td:last-child { padding-bottom: 15px; border-bottom: 2px solid var(--primary-light); }
-            .action-cell { justify-content: flex-start; }
-            .btn-icon { width: 100%; height: 44px; }
-            .table-responsive { border-radius: 12px; }
-            th, td { padding: 12px 15px; }
             .filters { flex-direction: column; align-items: stretch; padding: 15px; }
             .filter-group { width: 100%; }
             .btn-filter { width: 100%; margin-top: 5px; }
+
+            /* Превращаем таблицу в карточки */
+            .table-responsive { border-radius: 12px; background: transparent; box-shadow: none; overflow: visible;}
+            .table-responsive table, .table-responsive thead, .table-responsive tbody, .table-responsive tr, .table-responsive th, .table-responsive td { display: block; width: 100%; box-sizing: border-box; }
+            .table-responsive thead { display: none; } /* Прячем заголовки таблицы */
+            
+            .table-responsive tr { 
+                margin-bottom: 16px; 
+                background: var(--card-bg); 
+                border-radius: var(--radius-lg); 
+                border: 1px solid var(--border); 
+                padding: 16px; 
+                box-shadow: var(--shadow-sm); 
+            }
+            
+            .table-responsive td { 
+                display: flex; 
+                justify-content: space-between; 
+                align-items: center; 
+                padding: 10px 0; 
+                border-bottom: 1px dashed #E2E8F0; 
+                text-align: right; 
+            }
+            .table-responsive td:last-child { border-bottom: none; padding-bottom: 0; }
+            
+            /* Выводим названия колонок слева (берется из атрибута data-label) */
+            .table-responsive td::before { 
+                content: attr(data-label); 
+                font-size: 11px; 
+                font-weight: 700; 
+                text-transform: uppercase; 
+                color: var(--text-muted); 
+                text-align: left; 
+                margin-right: 15px; 
+            }
+            
+            .action-cell { justify-content: flex-end; width: 100%; gap: 10px;}
+            .btn-icon { width: 44px; height: 44px; }
+            
+            /* Фиксы для инлайн-форм на мобилке */
+            .add-form-row { padding: 15px !important; }
+            .add-form-row td::before, .edit_form_row td::before { display: none; }
+            .add-form-row td { display: block; border-bottom: none; padding: 8px 0; }
+            .edit_form_row td { display: block; border-bottom: none; padding: 8px 0; text-align: left; }
+            .add-form-row td:last-child { padding-bottom: 15px; border-bottom: none; }
         }
     </style>
 </head>
@@ -575,19 +618,19 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
             <tbody id="eventsTableBody">
                 
                 <tr class="add-form-row" id="add_event_row">
-                    <td style="display:flex; gap:5px; border-bottom: none;">
+                    <td data-label="Дата" style="display:flex; gap:5px; border-bottom: none;">
                         <input form="ajaxAddEventForm" type="date" name="tour_date" class="t-input" required title="Дата экскурсии" style="flex:1;">
                         <input form="ajaxAddEventForm" type="time" name="time" id="add_time" class="t-input" title="Время старта (оставьте пустым для автоподстановки)" style="width:auto;" oninput="this.dataset.manual='1'">
                     </td>
-                    <td>
+                    <td data-label="Тур">
                         <select form="ajaxAddEventForm" name="tour_id" id="add_tour_id" class="t-input" required title="Название тура" onchange="updateDefaultTime()">
                             <option value="" disabled selected>Выберите тур...</option>
                             <?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?>
                         </select>
                     </td>
-                    <td><select form="ajaxAddEventForm" name="guide" class="t-input" required title="Назначить гида"><option value="" disabled selected>Гид...</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></td>
-                    <td colspan="3"><input form="ajaxAddEventForm" type="text" name="notes" class="t-input" placeholder="Примечание (опционально)..."></td>
-                    <td colspan="2"><button form="ajaxAddEventForm" type="submit" class="btn-add-submit" id="submitAddBtn">Сохранить тур</button></td>
+                    <td data-label="Гид"><select form="ajaxAddEventForm" name="guide" class="t-input" required title="Назначить гида"><option value="" disabled selected>Гид...</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></td>
+                    <td data-label="Примечание" colspan="3"><input form="ajaxAddEventForm" type="text" name="notes" class="t-input" placeholder="Примечание (опционально)..."></td>
+                    <td data-label="Действие" colspan="2"><button form="ajaxAddEventForm" type="submit" class="btn-add-submit" id="submitAddBtn">Сохранить тур</button></td>
                 </tr>
                 
                 <?php if (count($events) === 0): ?>
@@ -607,17 +650,17 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                 <?php foreach ($events as $ev): ?>
                 
                 <tr class="view_e_<?= $ev['id'] ?>">
-                    <td style="white-space: nowrap;">
+                    <td data-label="Дата" style="white-space: nowrap;">
                         <strong><?= date('d.m.Y', strtotime($ev['tour_date'])) ?></strong>
                         <?php if (!empty($ev['time'])): ?>
                             <div style="color: var(--primary); font-size: 11px; font-weight: 700; margin-top: 4px;">⏱ <?= htmlspecialchars($ev['time']) ?></div>
                         <?php endif; ?>
                     </td>
-                    <td><a href="event.php?id=<?= $ev['id'] ?>" class="link-tour"><?= htmlspecialchars($ev['tour_name']) ?></a></td>
-                    <td><span class="guide-tag" style="<?= getGuideColorStyle($ev['guide']) ?>"><?= htmlspecialchars($ev['guide'] ?: 'Не назначен') ?></span></td>
-                    <td><span class="seats-badge"><?= $ev['seats_count'] ?></span></td>
-                    <td class="col-price" style="color: #10B981;"><?= number_format($ev['total_price'], 0, '', ' ') ?> ₽</td>
-                    <td>
+                    <td data-label="Тур"><a href="event.php?id=<?= $ev['id'] ?>" class="link-tour"><?= htmlspecialchars($ev['tour_name']) ?></a></td>
+                    <td data-label="Гид"><span class="guide-tag" style="<?= getGuideColorStyle($ev['guide']) ?>"><?= htmlspecialchars($ev['guide'] ?: 'Не назначен') ?></span></td>
+                    <td data-label="Мест"><span class="seats-badge"><?= $ev['seats_count'] ?></span></td>
+                    <td data-label="Доход" class="col-price" style="color: #10B981;"><?= number_format($ev['total_price'], 0, '', ' ') ?> ₽</td>
+                    <td data-label="Туристы">
                         <?php 
                         $clients_html = '';
                         if (!empty($ev['clients_data'])) {
@@ -637,16 +680,16 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                         }
                         ?>
                     </td>
-                    <td class="col-note">
+                    <td data-label="Примечание" class="col-note">
                         <?php if (!empty($ev['notes'])): ?>
                             <div class="note-truncate" data-note="<?= htmlspecialchars($ev['notes'], ENT_QUOTES) ?>" onclick="showNoteModal(this.getAttribute('data-note'))">
                                 <?= htmlspecialchars($ev['notes']) ?>
                             </div>
                         <?php else: ?>—<?php endif; ?>
                     </td>
-                    <td style="text-align: right; white-space: nowrap;">
+                    <td data-label="Действия" style="text-align: right; white-space: nowrap;">
                         <div class="action-cell">
-                            <a href="event.php?id=<?= $ev['id'] ?>" class="btn-icon btn-view" title="Открыть карточку">
+                            <a href="event.php?id=<?= $ev['id'] ?>" class="btn-icon btn-view" title="Открыть">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                             </a>
                             <button type="button" class="btn-icon btn-edit" onclick="toggleEditE(<?= $ev['id'] ?>)" title="Редактировать">
@@ -660,18 +703,18 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                 </tr>
 
                 <tr class="edit_form_row edit_e_<?= $ev['id'] ?>" style="display: none;">
-                    <td>
+                    <td data-label="Дата">
                         <input form="formEditE_<?= $ev['id'] ?>" type="date" name="tour_date" class="t-input" value="<?= htmlspecialchars($ev['tour_date']) ?>" required style="margin-bottom:4px;">
                         <input form="formEditE_<?= $ev['id'] ?>" type="time" name="time" class="t-input" value="<?= htmlspecialchars($ev['time'] ?? '') ?>">
                     </td>
-                    <td>
+                    <td data-label="Тур">
                         <select form="formEditE_<?= $ev['id'] ?>" name="tour_id" class="t-input" required>
                             <?php foreach ($tours as $t): ?>
                                 <option value="<?= $t['id'] ?>" <?= $t['id'] == $ev['tour_id'] ? 'selected' : '' ?>><?= htmlspecialchars($t['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </td>
-                    <td>
+                    <td data-label="Гид">
                         <select form="formEditE_<?= $ev['id'] ?>" name="guide" class="t-input" required>
                             <option value="Не назначен" <?= $ev['guide'] === 'Не назначен' ? 'selected' : '' ?>>Не назначен</option>
                             <?php foreach ($guides as $g): ?>
@@ -679,11 +722,11 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                             <?php endforeach; ?>
                         </select>
                     </td>
-                    <td><span class="seats-badge"><?= $ev['seats_count'] ?></span></td>
-                    <td class="col-price" style="color: #10B981;"><?= number_format($ev['total_price'], 0, '', ' ') ?> ₽</td>
-                    <td><?= $clients_html ?: '—' ?></td>
-                    <td><input form="formEditE_<?= $ev['id'] ?>" type="text" name="notes" class="t-input" value="<?= htmlspecialchars($ev['notes'] ?? '') ?>"></td>
-                    <td style="text-align: right; white-space: nowrap;">
+                    <td data-label="Мест"><span class="seats-badge"><?= $ev['seats_count'] ?></span></td>
+                    <td data-label="Доход" class="col-price" style="color: #10B981;"><?= number_format($ev['total_price'], 0, '', ' ') ?> ₽</td>
+                    <td data-label="Туристы"><?= $clients_html ?: '—' ?></td>
+                    <td data-label="Примечание"><input form="formEditE_<?= $ev['id'] ?>" type="text" name="notes" class="t-input" value="<?= htmlspecialchars($ev['notes'] ?? '') ?>"></td>
+                    <td data-label="Действие" style="text-align: right; white-space: nowrap;">
                         <div class="action-cell">
                             <button form="formEditE_<?= $ev['id'] ?>" type="submit" class="btn-icon btn-view" title="Сохранить">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -730,7 +773,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         <?php foreach ($guide_events as $ev): 
             $p_stmt = $pdo->prepare("SELECT * FROM participants WHERE event_id = ? AND status != 'Отмена'");
             $p_stmt->execute([$ev['id']]);
-            $tourists = $p_stmt->fetchAll();
+            $tourists = $p_stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $months_ru = ['', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
             $ts = strtotime($ev['tour_date']);
@@ -763,8 +806,8 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                 ?>
                     <div class="g-tourist-row">
                         <div class="g-tourist-info">
-                            <span class="g-tourist-name"><?= htmlspecialchars($t['client_name']) ?></span>
-                            <span class="g-tourist-seats"><?= $t['seats'] ?> чел.</span>
+                            <span class="g-tourist-name"><?= htmlspecialchars($t['client_name'] ?? $t['name'] ?? '') ?></span>
+                            <span class="g-tourist-seats"><?= $t['seats'] ?? $t['places'] ?? 1 ?> чел.</span>
                         </div>
                         <div class="g-tourist-actions">
                             <a href="tel:<?= htmlspecialchars($t['phone']) ?>" class="g-btn-icon g-btn-call" title="Позвонить">📞</a>

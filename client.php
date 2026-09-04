@@ -1,316 +1,385 @@
 <?php
+ini_set('display_errors', 0);
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
 
 require_once 'auth.php';
 
+if ($current_user_role !== 'admin') {
+    die("<h2 style='text-align:center; margin-top:50px;'>Доступ закрыт.</h2>");
+}
+
 $phone = $_GET['phone'] ?? '';
-if (empty($phone)) {
-    header("Location: participants.php");
+if (!$phone) { header("Location: clients.php"); exit; }
+
+$part_cols = $pdo->query("SHOW COLUMNS FROM participants")->fetchAll(PDO::FETCH_COLUMN);
+$name_col = in_array('client_name', $part_cols) ? 'client_name' : 'name';
+$seats_col = in_array('places', $part_cols) ? 'places' : 'seats';
+
+// --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ДЛЯ ТЕГОВ ---
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS client_profiles (phone VARCHAR(50) PRIMARY KEY, tags VARCHAR(255) DEFAULT '', global_note TEXT DEFAULT '')");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS global_settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value TEXT)");
+    $pdo->exec("INSERT IGNORE INTO global_settings (setting_key, setting_value) VALUES ('client_tags', 'VIP,Лояльный,Семья с детьми,Сложный клиент,Черный список')");
+} catch(PDOException $e) {}
+
+function getTagStyle($tagName) {
+    $hash = crc32($tagName);
+    $hue = abs($hash) % 360;
+    return "background: hsl({$hue}, 80%, 94%); color: hsl({$hue}, 85%, 28%); border: 1px solid transparent;";
+}
+
+// --- ПЕРЕИМЕНОВАНИЕ ТЕГА ГЛОБАЛЬНО ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rename_tag'])) {
+    $old_tag = trim($_POST['old_tag'] ?? '');
+    $new_tag = trim($_POST['new_tag'] ?? '');
+    if ($old_tag && $new_tag && $old_tag !== $new_tag) {
+        
+        // 1. Меняем в глобальном справочнике
+        $tags_str = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'client_tags'")->fetchColumn();
+        $tags_arr = $tags_str ? explode(',', $tags_str) : [];
+        $idx = array_search($old_tag, $tags_arr);
+        if ($idx !== false) {
+            $tags_arr[$idx] = $new_tag;
+            $pdo->prepare("UPDATE global_settings SET setting_value = ? WHERE setting_key = 'client_tags'")->execute([implode(',', array_unique($tags_arr))]);
+        }
+        
+        // 2. Меняем в профилях всех клиентов
+        $stmt = $pdo->prepare("SELECT phone, tags FROM client_profiles WHERE tags LIKE ?");
+        $stmt->execute(["%" . $old_tag . "%"]);
+        foreach ($stmt->fetchAll() as $p) {
+            $tags_arr_c = array_map('trim', explode(',', $p['tags']));
+            $idx_c = array_search($old_tag, $tags_arr_c);
+            if ($idx_c !== false) {
+                $tags_arr_c[$idx_c] = $new_tag;
+                $pdo->prepare("UPDATE client_profiles SET tags = ? WHERE phone = ?")->execute([implode(',', array_unique(array_filter($tags_arr_c))), $p['phone']]);
+            }
+        }
+        header("Location: client.php?phone=" . urlencode($phone) . "&msg=tag_renamed");
+        exit;
+    }
+}
+
+// --- УДАЛЕНИЕ ТЕГА ГЛОБАЛЬНО ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_tag'])) {
+    $tag_to_delete = trim($_POST['delete_tag_name'] ?? '');
+    if ($tag_to_delete) {
+        
+        // 1. Удаляем из справочника
+        $tags_str = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'client_tags'")->fetchColumn();
+        $tags_arr = $tags_str ? explode(',', $tags_str) : [];
+        $tags_arr = array_filter($tags_arr, function($t) use ($tag_to_delete) { return $t !== $tag_to_delete; });
+        $pdo->prepare("UPDATE global_settings SET setting_value = ? WHERE setting_key = 'client_tags'")->execute([implode(',', $tags_arr)]);
+        
+        // 2. Удаляем у всех клиентов
+        $stmt = $pdo->prepare("SELECT phone, tags FROM client_profiles WHERE tags LIKE ?");
+        $stmt->execute(["%" . $tag_to_delete . "%"]);
+        foreach ($stmt->fetchAll() as $p) {
+            $tags_arr_c = array_map('trim', explode(',', $p['tags']));
+            $tags_arr_c = array_filter($tags_arr_c, function($t) use ($tag_to_delete) { return $t !== $tag_to_delete; });
+            $pdo->prepare("UPDATE client_profiles SET tags = ? WHERE phone = ?")->execute([implode(',', $tags_arr_c), $p['phone']]);
+        }
+        header("Location: client.php?phone=" . urlencode($phone) . "&msg=tag_deleted");
+        exit;
+    }
+}
+
+// --- СОХРАНЕНИЕ ПРОФИЛЯ ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
+    $posted_tags = $_POST['tags'] ?? [];
+    $custom_tag = trim($_POST['custom_tag'] ?? '');
+    
+    // Если вписали новый тег - добавляем его клиенту и в глобальный справочник
+    if ($custom_tag !== '') {
+        $posted_tags[] = $custom_tag;
+        
+        $tags_str = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'client_tags'")->fetchColumn();
+        $tags_arr = $tags_str ? explode(',', $tags_str) : [];
+        if (!in_array($custom_tag, $tags_arr)) {
+            $tags_arr[] = $custom_tag;
+            $pdo->prepare("UPDATE global_settings SET setting_value = ? WHERE setting_key = 'client_tags'")->execute([implode(',', array_unique($tags_arr))]);
+        }
+    }
+
+    $clean_tags = array_unique(array_filter(array_map('trim', $posted_tags)));
+    $tags_str = implode(',', $clean_tags);
+    $global_note = trim($_POST['global_note'] ?? '');
+
+    $pdo->prepare("INSERT INTO client_profiles (phone, tags, global_note) VALUES (?, ?, ?) 
+                   ON DUPLICATE KEY UPDATE tags = VALUES(tags), global_note = VALUES(global_note)")
+        ->execute([$phone, $tags_str, $global_note]);
+    
+    header("Location: client.php?phone=" . urlencode($phone) . "&msg=saved");
     exit;
 }
 
-// Получаем ВСЮ историю этого клиента по номеру телефона
-$stmt = $pdo->prepare("
-    SELECT p.*, e.tour_date, t.name AS tour_name, e.guide, e.id AS event_id 
-    FROM participants p 
-    JOIN events e ON p.event_id = e.id 
-    JOIN tours_catalog t ON e.tour_id = t.id 
-    WHERE p.phone = ? 
-    ORDER BY e.tour_date DESC
-");
+// Получаем профиль клиента
+$stmt_prof = $pdo->prepare("SELECT * FROM client_profiles WHERE phone = ?");
+$stmt_prof->execute([$phone]);
+$profile = $stmt_prof->fetch(PDO::FETCH_ASSOC) ?: ['tags' => '', 'global_note' => ''];
+$current_tags = array_filter(array_map('trim', explode(',', $profile['tags'])));
+
+// Получаем глобальный список тегов
+$global_tags_str = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'client_tags'")->fetchColumn();
+$all_existing_tags = $global_tags_str ? explode(',', $global_tags_str) : [];
+
+// История поездок и сбор почты
+$sql = "SELECT p.*, e.tour_date, t.name as tour_name 
+        FROM participants p 
+        JOIN events e ON p.event_id = e.id 
+        JOIN tours_catalog t ON e.tour_id = t.id 
+        WHERE p.phone = ? 
+        ORDER BY e.tour_date DESC";
+$stmt = $pdo->prepare($sql);
 $stmt->execute([$phone]);
 $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-if (count($history) === 0) {
-    die("<div style='text-align:center; margin-top:50px; font-family:sans-serif; color:#475569;'><h2>Клиент не найден или удален.</h2><a href='participants.php' style='color:#4F46E5;'>Вернуться в базу</a></div>");
-}
-
-// Собираем актуальные данные клиента (берем из самой свежей записи)
-$client_name = $history[0]['client_name'] ?? 'Неизвестно';
+$client_name = $history[0][$name_col] ?? 'Без имени';
 $client_email = '';
-foreach ($history as $h) {
-    if (!empty($h['email'])) {
-        $client_email = $h['email'];
-        break;
-    }
-}
-
-// Подсчитываем аналитику (LTV клиента)
-$total_spent = 0;
-$total_tours = 0;
-$total_seats = 0;
-$cancelled_tours = 0;
+$trips_count = count($history);
+$ltv = 0;
 
 foreach ($history as $h) {
-    if (($h['status'] ?? '') !== 'Отмена') {
-        $total_spent += (int)($h['price'] ?? 0);
-        $total_seats += (int)($h['seats'] ?? 0);
-        $total_tours++;
-    } else {
-        $cancelled_tours++;
-    }
+    if ($h['status'] !== 'Отмена') $ltv += $h['price'];
+    if (empty($client_email) && !empty($h['email'])) $client_email = $h['email'];
 }
 
-// Форматируем телефон для ссылок
 $clean_phone = preg_replace('/[^0-9]/', '', $phone);
-if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { 
-    $clean_phone = '7' . substr($clean_phone, 1); 
-}
+if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
 
-// Функция для генерации цвета гида
-function getGuideColorStyle($guideName) {
-    if (empty($guideName) || $guideName === 'Не назначен') return "background: #F1F5F9; color: #475569; border-color: transparent;";
-    $hash = substr(md5($guideName), 0, 6);
-    $hue = hexdec($hash) % 360; 
-    return "background: hsl({$hue}, 85%, 94%); color: hsl({$hue}, 85%, 25%); border-color: transparent;";
+function getStatusColor($status) {
+    switch($status) {
+        case 'Оплачено': return 'background:#D1FAE5; color:#047857;';
+        case 'Предоплата': return 'background:#DBEAFE; color:#1D4ED8;';
+        case 'Бронь': return 'background:#FEF3C7; color:#B45309;';
+        case 'Отмена': return 'background:#FEE2E2; color:#B91C1C; text-decoration:line-through;';
+        default: return 'background:#F1F5F9; color:#475569;';
+    }
 }
 ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($client_name) ?> — Профиль клиента</title>
     <style>
-        /* ПРЕМИУМ ДИЗАЙН (Единый стиль CRM) */
-        :root { 
-            --primary: #4F46E5; --primary-hover: #4338CA; --primary-light: #EEF2FF;
-            --bg: #F8FAFC; --card-bg: #FFFFFF; --border: #E2E8F0; 
-            --text-main: #0F172A; --text-muted: #64748B;
-            --radius-lg: 16px; --radius-md: 12px; --radius-sm: 8px;
-            --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
-            --shadow-md: 0 4px 15px -3px rgba(0,0,0,0.05);
-            --shadow-float: 0 10px 30px -5px rgba(0,0,0,0.08);
-            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+        :root { --primary: #4F46E5; --primary-hover: #4338CA; --primary-light: #EEF2FF; --bg: #F8FAFC; --card-bg: #FFFFFF; --border: #E2E8F0; --text-main: #0F172A; --text-muted: #64748B; --radius-lg: 12px; --radius-md: 8px; --radius-sm: 6px; --shadow-xs: 0 1px 2px rgba(0,0,0,0.05); --shadow-sm: 0 4px 6px -1px rgba(0,0,0,0.05); --transition: all 0.2s ease;}
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; box-sizing: border-box; }
         
-        body { font-family: 'Inter', 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 20px; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;}
-        .container { max-width: 1350px; margin: 0 auto; box-sizing: border-box;}
+        .navbar { display: flex; gap: 12px; margin-bottom: 24px; align-items: center; flex-wrap: wrap; background: var(--card-bg); padding: 12px 20px; border-radius: var(--radius-lg); border: 1px solid var(--border); box-shadow: var(--shadow-xs); }
+        .nav-link { text-decoration: none; color: var(--text-muted); font-weight: 600; font-size: 14px; padding: 8px 14px; border-radius: var(--radius-sm); transition: var(--transition); }
+        .nav-link.active { background: var(--primary); color: white; }
+
+        .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--primary); text-decoration: none; font-size: 14px; font-weight: 700; margin-bottom: 20px; padding: 6px 14px; background: var(--primary-light); border-radius: 99px; transition: var(--transition);}
+        .back-link:hover { background: #E0E7FF; transform: translateX(-2px); }
+
+        .profile-header { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 30px; box-shadow: var(--shadow-sm); margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;}
+        .ph-info h1 { margin: 0 0 10px 0; font-size: 32px; font-weight: 900; letter-spacing: -0.02em; }
+        .ph-contacts { font-size: 15px; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;}
+        .contact-item { display: flex; align-items: center; gap: 6px; }
         
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+        .action-buttons { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .btn-act { padding: 8px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: var(--transition); box-shadow: var(--shadow-xs);}
+        .btn-act:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 
-        .navbar { display: flex; gap: 15px; margin-bottom: 25px; align-items: center; flex-wrap: wrap; background: var(--card-bg); padding: 15px 25px; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);}
-        .nav-link { text-decoration: none; color: var(--text-muted); font-weight: 600; padding: 10px 18px; border-radius: var(--radius-sm); transition: var(--transition); }
-        .nav-link.active { background: var(--primary); color: white; box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);}
-        .nav-link:hover:not(.active) { background: var(--primary-light); color: var(--primary); }
+        .ph-stats { display: flex; gap: 20px; }
+        .stat-box { background: #F8FAFC; padding: 15px 20px; border-radius: var(--radius-md); border: 1px solid var(--border); text-align: center; min-width: 120px;}
+        .stat-val { font-size: 24px; font-weight: 900; color: var(--text-main); margin-bottom: 4px;}
+        .stat-val.green { color: #10B981; }
+        .stat-label { font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--text-muted); letter-spacing: 0.05em;}
 
-        .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--primary); text-decoration: none; font-size: 14px; font-weight: 700; margin-bottom: 20px; transition: var(--transition); padding: 8px 16px; background: var(--primary-light); border-radius: 99px; }
-        .back-link:hover { background: #E0E7FF; transform: translateX(-3px); }
+        .grid-layout { display: grid; grid-template-columns: 1fr 2fr; gap: 30px; align-items: start; }
+        
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 25px; box-shadow: var(--shadow-sm); }
+        .card h3 { margin: 0 0 20px 0; font-size: 18px; font-weight: 800; border-bottom: 2px solid #F1F5F9; padding-bottom: 10px;}
 
-        /* Профиль клиента (Header) */
-        .profile-header { background: var(--card-bg); border-radius: var(--radius-lg); padding: 30px; margin-bottom: 30px; box-shadow: var(--shadow-md); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; border: 1px solid rgba(255,255,255,0.8);}
-        .profile-info { display: flex; align-items: center; gap: 20px; }
-        .profile-avatar { width: 70px; height: 70px; border-radius: 50%; background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 800; box-shadow: 0 4px 15px rgba(79, 70, 229, 0.2);}
-        .profile-details h1 { margin: 0 0 5px 0; font-size: 26px; font-weight: 800; color: var(--text-main); letter-spacing: -0.02em;}
-        .profile-contacts { display: flex; align-items: center; gap: 15px; font-size: 14px; color: var(--text-muted); font-weight: 500;}
-        .contact-item { display: flex; align-items: center; gap: 5px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px;}
+        
+        /* Управление тегами (с кнопками) */
+        .tags-selector { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;}
+        .tag-wrap { display: inline-flex; align-items: stretch; background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-xs); transition: var(--transition);}
+        .tag-wrap:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); }
+        .tag-wrap:has(input:checked) { border-color: var(--primary); }
+        
+        .tag-wrap input[type="checkbox"] { display: none; }
+        .tag-lbl { padding: 8px 12px; font-size: 13px; font-weight: 800; cursor: pointer; transition: var(--transition); opacity: 0.4; filter: grayscale(100%); user-select: none; margin: 0; display: flex; align-items: center;}
+        .tag-wrap input[type="checkbox"]:checked + .tag-lbl { opacity: 1; filter: grayscale(0%); }
 
-        .profile-actions { display: flex; gap: 10px; }
-        .btn-call { background: #E0F2FE; color: #0284C7; padding: 10px 20px; border-radius: var(--radius-sm); font-weight: 700; text-decoration: none; transition: var(--transition); display: flex; align-items: center; gap: 8px; font-size: 14px;}
-        .btn-call:hover { background: #BAE6FD; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(2, 132, 199, 0.15);}
-        .btn-whatsapp { background: #DCFCE7; color: #16A34A; padding: 10px 20px; border-radius: var(--radius-sm); font-weight: 700; text-decoration: none; transition: var(--transition); display: flex; align-items: center; gap: 8px; font-size: 14px;}
-        .btn-whatsapp:hover { background: #BBF7D0; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(22, 163, 74, 0.15);}
+        .tag-actions { display: flex; align-items: center; background: #F8FAFC; border-left: 1px solid var(--border); padding: 0 4px;}
+        .btn-tag-edit { background: transparent; border: none; cursor: pointer; font-size: 13px; padding: 6px 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; opacity: 0.5; transition: var(--transition);}
+        .btn-tag-edit:hover { opacity: 1; background: rgba(0,0,0,0.05); }
 
-        /* Дашборды аналитики */
-        .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .dash-card { background: var(--card-bg); border-radius: var(--radius-lg); padding: 22px; box-shadow: var(--shadow-md); transition: var(--transition); position: relative; overflow: hidden;}
-        .dash-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-float); }
-        .dash-card::before { content:''; position:absolute; top:0; left:0; width:4px; height:100%; border-radius: 4px 0 0 4px; background: var(--border);}
-        .dash-card.profit::before { background: #10B981; }
-        .dash-card.blue::before { background: var(--primary); }
-        .dash-card.warning::before { background: #F59E0B; }
-        .dash-title { font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.05em;}
-        .dash-val { font-size: 26px; font-weight: 800; color: var(--text-main); }
-        .val-green { color: #10B981; } 
+        .t-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; background: #F8FAFC; outline: none; box-sizing: border-box; }
+        .t-input:focus { background: #fff; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
 
-        .section-title { font-size: 20px; font-weight: 800; margin: 0 0 15px 0; color: var(--text-main); letter-spacing: -0.01em;}
+        .t-textarea { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: #F8FAFC; font-family: inherit; resize: vertical; outline: none; box-sizing: border-box;}
+        .t-textarea:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px var(--primary-light);}
 
-        /* Таблица истории */
-        .table-responsive { width: 100%; overflow-x: auto; max-height: 65vh; overflow-y: auto; background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);}
-        table { width: 100%; min-width: 1000px; border-collapse: separate; border-spacing: 0; }
-        th, td { padding: 16px 20px; text-align: left; font-size: 14px; vertical-align: middle; border-bottom: 1px solid #F1F5F9;}
-        th { position: sticky; top: 0; z-index: 10; background-color: rgba(255,255,255,0.95); backdrop-filter: blur(8px); font-weight: 700; font-size: 12px; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; box-shadow: 0 1px 0 #F1F5F9; letter-spacing: 0.05em;}
+        .btn-save { background: var(--primary); color: white; border: none; padding: 12px 24px; border-radius: var(--radius-sm); font-weight: 700; font-size: 14px; cursor: pointer; width: 100%; transition: var(--transition);}
+        .btn-save:hover { background: var(--primary-hover); transform: translateY(-1px);}
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 14px 16px; font-size: 14px; border-bottom: 1px solid #F1F5F9; text-align: left; }
+        th { font-weight: 700; font-size: 12px; text-transform: uppercase; color: var(--text-muted); background: #F8FAFC; }
         tr:hover td { background-color: #F8FAFC; }
-        tr:last-child td { border-bottom: none; }
-        
-        .col-price { white-space: nowrap; width: 100px; font-weight: 700; font-size: 15px; color: #10B981;}
-        .col-note { width: 180px; }
-        
-        .note-truncate { max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; color: var(--text-muted); font-size: 13px; padding: 6px 8px; border-radius: 6px; transition: var(--transition); border: 1px dashed transparent;}
-        .note-truncate:hover { background: var(--card-bg); color: var(--text-main); border-color: #CBD5E1; box-shadow: var(--shadow-sm);}
+        .tour-link { font-weight: 800; color: var(--text-main); text-decoration: none;}
+        .tour-link:hover { color: var(--primary); text-decoration: underline;}
+        .status-badge { padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;}
 
-        .link-tour { color: var(--text-main); text-decoration: none; font-weight: 700; font-size: 14px; transition: var(--transition); } 
-        .link-tour:hover { color: var(--primary); }
-
-        .guide-tag { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; white-space: nowrap; display: inline-block;}
-        .seats-badge { background: #F1F5F9; color: #475569; font-weight: 700; padding: 4px 12px; border-radius: 12px; font-size: 13px;}
-        
-        .status-badge { display: inline-block; padding: 5px 12px; border-radius: 99px; font-size: 12px; font-weight: 700; background: #F1F5F9; color: var(--text-muted); }
-        .status-<?php echo md5('Бронь'); ?> { background: #FEF3C7; color: #B45309; }
-        .status-<?php echo md5('Предоплата'); ?> { background: #DBEAFE; color: #1D4ED8; }
-        .status-<?php echo md5('Оплачено'); ?> { background: #D1FAE5; color: #047857; }
-        .status-<?php echo md5('Отмена'); ?> { background: #FEE2E2; color: #B91C1C; text-decoration: line-through; }
-
-        .action-cell { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
-        .btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--radius-sm); font-size: 14px; border: none; cursor: pointer; transition: var(--transition); background: #F0FDF4; color: #10B981; text-decoration: none;}
-        .btn-icon:hover { background: #DCFCE7; color: #047857; transform: translateY(-1px); box-shadow: var(--shadow-sm);}
-
-        /* Модалка для примечания */
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.4); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); padding: 20px; box-sizing: border-box;}
-        .modal-content { background: var(--card-bg); padding: 30px; border-radius: 24px; max-width: 420px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.2); transform: scale(0.95); animation: modalIn 0.2s forwards cubic-bezier(0.4, 0, 0.2, 1);}
-        @keyframes modalIn { to { transform: scale(1); } }
-        .modal-content h3 { font-size: 20px; font-weight: 800; margin-bottom: 20px;}
-        .btn-cancel { background: transparent; color: var(--text-muted); padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); font-weight: 600; font-size: 15px; width: 100%; cursor: pointer; transition: var(--transition);}
-        .btn-cancel:hover { background: #F8FAFC; color: var(--text-main); }
-
-        @media (max-width: 768px) {
-            body { padding: 10px; } .container { padding: 10px; }
-            .profile-header { flex-direction: column; align-items: stretch; text-align: center;}
-            .profile-info { flex-direction: column; gap: 10px; }
-            .profile-contacts { flex-direction: column; gap: 5px; justify-content: center; }
-            .profile-actions { justify-content: center; width: 100%; margin-top: 10px; flex-direction: column;}
-            .btn-call, .btn-whatsapp { justify-content: center; width: 100%;}
-            .dash-grid { grid-template-columns: 1fr 1fr; }
-            .dash-val { font-size: 20px; }
+        @media (max-width: 992px) {
+            .grid-layout { grid-template-columns: 1fr; }
+            .profile-header { flex-direction: column; }
+            .ph-stats { width: 100%; }
+            .stat-box { flex: 1; }
         }
     </style>
 </head>
 <body>
 
+<form id="tagManageForm" method="POST" style="display:none;">
+    <input type="hidden" name="rename_tag" id="rt_flag">
+    <input type="hidden" name="old_tag" id="rt_old">
+    <input type="hidden" name="new_tag" id="rt_new">
+    
+    <input type="hidden" name="delete_tag" id="dt_flag">
+    <input type="hidden" name="delete_tag_name" id="dt_name">
+</form>
+
 <div class="container">
     <?php include 'navbar.php'; ?>
 
-    <a href="participants.php" class="back-link">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        Назад в базу
-    </a>
+    <a href="clients.php" class="back-link">← Вернуться к базе клиентов</a>
 
     <div class="profile-header">
-        <div class="profile-info">
-            <div class="profile-avatar">
-                <?= mb_strtoupper(mb_substr($client_name, 0, 1)) ?>
+        <div class="ph-info">
+            <h1><?= htmlspecialchars($client_name) ?></h1>
+            <div class="ph-contacts">
+                <span class="contact-item">📞 <?= htmlspecialchars($phone) ?></span>
+                <?php if ($client_email): ?>
+                    <span style="color:var(--border);">|</span>
+                    <span class="contact-item">✉️ <?= htmlspecialchars($client_email) ?></span>
+                <?php endif; ?>
             </div>
-            <div class="profile-details">
-                <h1><?= htmlspecialchars($client_name) ?></h1>
-                <div class="profile-contacts">
-                    <div class="contact-item">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                        <?= htmlspecialchars($phone) ?>
-                    </div>
-                    <?php if (!empty($client_email)): ?>
-                    <div class="contact-item">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                        <?= htmlspecialchars($client_email) ?>
-                    </div>
-                    <?php endif; ?>
-                </div>
+            
+            <div class="action-buttons">
+                <a href="tel:<?= htmlspecialchars($phone) ?>" class="btn-act" style="background:#F1F5F9; color:var(--text-main);">Позвонить</a>
+                <a href="https://wa.me/<?= $clean_phone ?>" target="_blank" class="btn-act" style="background:#ECFDF5; color:#059669;">WhatsApp</a>
+                <a href="https://t.me/+<?= $clean_phone ?>" target="_blank" class="btn-act" style="background:#EFF6FF; color:#2563EB;">Telegram</a>
+                <?php if ($client_email): ?>
+                    <a href="mailto:<?= htmlspecialchars($client_email) ?>" class="btn-act" style="background:#FEF2F2; color:#DC2626;">Email</a>
+                <?php endif; ?>
             </div>
         </div>
-        <div class="profile-actions">
-            <a href="tel:<?= htmlspecialchars($phone) ?>" class="btn-call">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                Позвонить
-            </a>
-            <a href="https://wa.me/<?= $clean_phone ?>" target="_blank" class="btn-whatsapp">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.3 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-                WhatsApp
-            </a>
+        
+        <div class="ph-stats">
+            <div class="stat-box">
+                <div class="stat-val"><?= $trips_count ?></div>
+                <div class="stat-label">Всего поездок</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val green"><?= number_format($ltv, 0, '', ' ') ?> ₽</div>
+                <div class="stat-label">Принес(ла) денег</div>
+            </div>
         </div>
     </div>
 
-    <div class="dash-grid">
-        <div class="dash-card profit">
-            <div class="dash-title">Сумма покупок (LTV)</div>
-            <div class="dash-val val-green"><?= number_format($total_spent, 0, '', ' ') ?> ₽</div>
-        </div>
-        <div class="dash-card blue">
-            <div class="dash-title">Успешных туров</div>
-            <div class="dash-val"><?= $total_tours ?></div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-title">Куплено мест</div>
-            <div class="dash-val"><?= $total_seats ?> шт.</div>
-        </div>
-        <?php if ($cancelled_tours > 0): ?>
-        <div class="dash-card warning">
-            <div class="dash-title">Отмененных записей</div>
-            <div class="dash-val val-red"><?= $cancelled_tours ?></div>
-        </div>
-        <?php endif; ?>
-    </div>
-
-    <div class="section-title">История поездок</div>
-
-    <div class="table-wrapper">
-        <div class="table-responsive">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="min-width: 100px;">Дата</th>
-                        <th style="min-width: 180px;">Название тура</th>
-                        <th>Гид</th>
-                        <th>Мест</th>
-                        <th>Сумма (₽)</th>
-                        <th>Источник</th>
-                        <th>Статус</th>
-                        <th>Примечание</th>
-                        <th style="text-align: right;">Перейти</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($history as $h): 
-                        $date_str = date('d.m.Y', strtotime($h['tour_date']));
-                        $opacity = ($h['status'] ?? '') === 'Отмена' ? '0.5' : '1';
-                        $guide_style = getGuideColorStyle($h['guide']);
-                        $price_str = number_format($h['price'] ?? 0, 0, '', ' ') . ' ₽';
-                        $note_html = !empty($h['notes']) ? "<div class='note-truncate' data-note='".htmlspecialchars($h['notes'], ENT_QUOTES)."' onclick=\"showNoteModal(this.getAttribute('data-note'))\">" . htmlspecialchars($h['notes']) . "</div>" : "—";
-                    ?>
-                    <tr style="opacity: <?= $opacity ?>;">
-                        <td><strong style="color:var(--text-main);"><?= $date_str ?></strong></td>
-                        <td><a href="event.php?id=<?= $h['event_id'] ?>" class="link-tour"><?= htmlspecialchars($h['tour_name']) ?></a></td>
-                        <td><span class="guide-tag" style="<?= $guide_style ?>"><?= htmlspecialchars($h['guide'] ?: 'Не назначен') ?></span></td>
-                        <td><span class="seats-badge"><?= htmlspecialchars($h['seats'] ?? '0') ?></span></td>
-                        <td class="col-price"><?= $price_str ?></td>
-                        <td style="color: var(--text-muted); font-size: 13px; font-weight:600;"><?= htmlspecialchars($h['source'] ?? '') ?></td>
-                        <td><span class="status-badge status-<?= md5($h['status'] ?? '') ?>"><?= htmlspecialchars($h['status'] ?? '') ?></span></td>
-                        <td class="col-note"><?= $note_html ?></td>
-                        <td style="text-align: right;">
-                            <div class="action-cell">
-                                <a href="event.php?id=<?= $h['event_id'] ?>" class="btn-icon btn-view" title="Открыть карточку тура">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                                </a>
+    <div class="grid-layout">
+        <div class="card">
+            <h3>Управление профилем</h3>
+            <form method="POST">
+                <input type="hidden" name="update_profile" value="1">
+                
+                <div class="form-group">
+                    <label>Теги клиента</label>
+                    <div class="tags-selector">
+                        <?php foreach($all_existing_tags as $tag): 
+                            $checked = in_array($tag, $current_tags) ? 'checked' : '';
+                            $style = getTagStyle($tag);
+                        ?>
+                            <div class="tag-wrap">
+                                <label style="margin:0; display:flex;">
+                                    <input type="checkbox" name="tags[]" value="<?= htmlspecialchars($tag) ?>" <?= $checked ?>>
+                                    <div class="tag-lbl" style="<?= $style ?>"><?= htmlspecialchars($tag) ?></div>
+                                </label>
+                                <div class="tag-actions">
+                                    <button type="button" class="btn-tag-edit" onclick="renameTag('<?= htmlspecialchars(addslashes($tag)) ?>')" title="Переименовать">✏️</button>
+                                    <button type="button" class="btn-tag-edit" onclick="delTag('<?= htmlspecialchars(addslashes($tag)) ?>')" title="Удалить из всей базы">❌</button>
+                                </div>
                             </div>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
 
-<div class="modal-overlay" id="noteModal">
-    <div class="modal-content">
-        <h3>Примечание к бронированию</h3>
-        <p id="noteModalText" style="font-size:15px; line-height:1.6; white-space:pre-wrap; color:var(--text-main); margin-bottom:25px;"></p>
-        <button type="button" class="btn-cancel" style="margin-top:0;" onclick="document.getElementById('noteModal').style.display='none'">Закрыть</button>
+                <div class="form-group">
+                    <label>➕ Создать новый тег</label>
+                    <input type="text" name="custom_tag" class="t-input" placeholder="Например: Из Москвы, Школьники...">
+                </div>
+
+                <div class="form-group">
+                    <label>Глобальная заметка (Видна всегда)</label>
+                    <textarea name="global_note" class="t-textarea" rows="4" placeholder="Например: Любит сидеть спереди, аллергия на орехи..."><?= htmlspecialchars($profile['global_note']) ?></textarea>
+                </div>
+
+                <button type="submit" class="btn-save">💾 Сохранить изменения</button>
+                
+                <?php 
+                $msg = $_GET['msg'] ?? '';
+                if ($msg === 'saved') echo '<div style="text-align:center; color:#10B981; font-weight:700; font-size:13px; margin-top:10px;">Профиль обновлен!</div>';
+                if ($msg === 'tag_renamed') echo '<div style="text-align:center; color:#3B82F6; font-weight:700; font-size:13px; margin-top:10px;">Тег переименован у всех!</div>';
+                if ($msg === 'tag_deleted') echo '<div style="text-align:center; color:#EF4444; font-weight:700; font-size:13px; margin-top:10px;">Тег удален из базы!</div>';
+                ?>
+            </form>
+        </div>
+
+        <div class="card" style="padding: 0;">
+            <h3 style="padding: 25px 25px 0 25px;">История поездок</h3>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Экскурсия</th>
+                            <th>Мест</th>
+                            <th>Сумма</th>
+                            <th>Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($history as $h): ?>
+                            <tr>
+                                <td style="white-space:nowrap; font-weight:600; color:var(--text-muted);"><?= date('d.m.Y', strtotime($h['tour_date'])) ?></td>
+                                <td><a href="event.php?id=<?= $h['event_id'] ?>" class="tour-link"><?= htmlspecialchars($h['tour_name']) ?></a></td>
+                                <td><span style="font-weight:800;"><?= $h[$seats_col] ?></span></td>
+                                <td style="font-weight:700; color:var(--text-main);"><?= number_format($h['price'], 0, '', ' ') ?> ₽</td>
+                                <td><span class="status-badge" style="<?= getStatusColor($h['status']) ?>"><?= htmlspecialchars($h['status']) ?></span></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
-    document.querySelectorAll('.modal-overlay').forEach(modal => {
-        modal.addEventListener('mousedown', function(e) {
-            if (e.target === this) this.style.display = 'none';
-        });
-    });
+    function renameTag(oldName) {
+        let newName = prompt("Введите новое название для тега '" + oldName + "':\nЭто изменит тег у ВСЕХ клиентов.", oldName);
+        if (newName && newName.trim() !== "" && newName !== oldName) {
+            document.getElementById('rt_old').value = oldName;
+            document.getElementById('rt_new').value = newName;
+            document.getElementById('rt_flag').value = "1";
+            document.getElementById('tagManageForm').submit();
+        }
+    }
 
-    function showNoteModal(text) {
-        document.getElementById('noteModalText').textContent = text;
-        document.getElementById('noteModal').style.display = 'flex';
+    function delTag(tagName) {
+        if (confirm("Вы уверены, что хотите навсегда УДАЛИТЬ тег '" + tagName + "'?\nОн исчезнет из профилей ВСЕХ клиентов.")) {
+            document.getElementById('dt_name').value = tagName;
+            document.getElementById('dt_flag').value = "1";
+            document.getElementById('tagManageForm').submit();
+        }
     }
 </script>
 
