@@ -1,8 +1,8 @@
 <?php
 function sendTelegramMessage($message) {
-    global $pdo; // Используем глобальное подключение к БД из db.php
+    global $pdo; 
     
-    // Достаем настройки из базы
+    // Получаем актуальные настройки из базы данных
     $botToken = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'tg_bot'")->fetchColumn();
     $chatId = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'tg_chat'")->fetchColumn();
 
@@ -22,7 +22,7 @@ function sendTelegramMessage($message) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 3);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); // Оставляем фикс для Timeweb
+    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); // Обязательный фикс для хостинга
     
     $result = curl_exec($ch);
     curl_close($ch);

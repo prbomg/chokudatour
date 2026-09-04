@@ -28,6 +28,8 @@ if(!in_array('price', $part_cols)) {
     try { $pdo->exec("ALTER TABLE participants ADD COLUMN price INT DEFAULT 0"); } catch(PDOException $e) {}
 }
 
+$has_places = in_array('places', $part_cols);
+
 // Защита и создание таблицы источников, если зашли сюда впервые
 $pdo->exec("CREATE TABLE IF NOT EXISTS booking_sources (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, sort_order INT DEFAULT 999)");
 $count_sources = $pdo->query("SELECT COUNT(*) FROM booking_sources")->fetchColumn();
@@ -140,17 +142,17 @@ $event = $stmt_ev->fetch(PDO::FETCH_ASSOC);
 
 if (!$event) { die("<h2 style='text-align:center; margin-top:50px; font-family:sans-serif;'>Заявка не найдена.</h2>"); }
 
-// Ограничение доступа для гида (видит только свои туры)
+// Ограничение доступа для гида
 if ($current_user_role === 'guide' && ($event[$guide_col] ?? '') !== $current_user_name) {
     die("<h2 style='text-align:center; margin-top:50px; font-family:sans-serif;'>Доступ запрещен.</h2>");
 }
 
-// Получаем всех участников
+// Получаем участников
 $stmt_p = $pdo->prepare("SELECT * FROM participants WHERE event_id = ? ORDER BY id DESC");
 $stmt_p->execute([$event_id]);
 $participants = $stmt_p->fetchAll(PDO::FETCH_ASSOC);
 
-// Получаем все расходы
+// Получаем расходы
 $stmt_ex = $pdo->prepare("SELECT * FROM expenses WHERE event_id = ? ORDER BY id DESC");
 $stmt_ex->execute([$event_id]);
 $expenses = $stmt_ex->fetchAll(PDO::FETCH_ASSOC);
@@ -159,7 +161,8 @@ $expenses = $stmt_ex->fetchAll(PDO::FETCH_ASSOC);
 $total_seats = 0; $total_income = 0;
 foreach ($participants as $p) {
     if (($p['status'] ?? '') !== 'Отмена') {
-        $total_seats += (int)($p['places'] ?? $p['seats'] ?? 0);
+        $p_places = $has_places && isset($p['places']) ? (int)$p['places'] : (int)($p['seats'] ?? 1);
+        $total_seats += $p_places;
         $total_income += (int)($p['price'] ?? 0);
     }
 }
@@ -208,7 +211,6 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
         .event-title-row h1 { margin: 0; font-size: 28px; font-weight: 900; color: #1E1B4B; letter-spacing: -0.02em; }
         .event-date-badge { background: var(--primary); color: white; padding: 8px 18px; border-radius: 99px; font-weight: 700; font-size: 14px; white-space: nowrap; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3); }
 
-        /* ИСПРАВЛЕНА ЛОГИКА: ПЛАШКА "К ПОЛУЧЕНИЮ" ТЕПЕРЬ ПОКАЗЫВАЕТ СТРОГО СУММУ ЦЕН ($total_income) БЕЗ ВЫЧЕТА РАСХОДОВ */
         .profit-badge { display: inline-flex; align-items: center; gap: 10px; background: #10B981; color: white; padding: 12px 20px; border-radius: 12px; font-size: 22px; font-weight: 900; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); margin-top: 15px; margin-bottom: 15px;}
         .profit-badge span { font-size: 13px; font-weight: 700; text-transform: uppercase; opacity: 0.9; letter-spacing: 0.05em; }
 
@@ -245,7 +247,24 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
         .add-form-row td { background: var(--primary-light) !important; border-bottom: 2px solid #C7D2FE; }
         .edit_form_row td { background: #FFFBEB !important; }
 
-        .btn-add-submit { background: var(--text-main); color: white; border: none; padding: 10px 18px; border-radius: var(--radius-sm); font-weight: 700; font-size: 13px; cursor: pointer; transition: var(--transition); white-space: nowrap; width: 100%; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+        /* ИСПРАВЛЕННАЯ ВЕРСТКА КНОПОК "ДОБАВИТЬ" И "РАСХОД" */
+        .btn-add-submit { 
+            background: var(--text-main); 
+            color: white; 
+            border: none; 
+            padding: 9px 16px; 
+            border-radius: var(--radius-sm); 
+            font-weight: 700; 
+            font-size: 13px; 
+            cursor: pointer; 
+            transition: var(--transition); 
+            white-space: nowrap; 
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15); 
+        }
         .btn-add-submit:hover { background: #1E293B; transform: translateY(-1px); box-shadow: 0 6px 15px rgba(0,0,0,0.2); }
 
         .status-badge { display: inline-block; padding: 5px 12px; border-radius: 99px; font-size: 12px; font-weight: 700; background: #F1F5F9; color: var(--text-muted); }
@@ -261,7 +280,6 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
         .btn-edit { background: var(--primary-light); color: var(--primary); } .btn-edit:hover { background: #E0E7FF; color: #3730A3; }
         .btn-del { background: #FEF2F2; color: #EF4444; } .btn-del:hover { background: #FEE2E2; color: #DC2626; }
         
-        /* Увеличенная зеленая кнопка WhatsApp для мобильных */
         .btn-wa { background: #10B981; color: white; padding: 0 12px; width: auto; font-weight: 700; font-size: 12px; box-shadow: 0 2px 5px rgba(16,185,129,0.3);} 
         .btn-wa:hover { background: #059669; color: white; }
 
@@ -430,7 +448,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                             </select>
                         </td>
                         <td><input form="formAddParticipant" type="text" name="notes" class="t-input" placeholder="Примечание..."></td>
-                        <td><button form="formAddParticipant" type="submit" class="btn-add-submit">+ Добавить</button></td>
+                        <td style="text-align: right;"><button form="formAddParticipant" type="submit" class="btn-add-submit">Добавить</button></td>
                     </tr>
 
                     <?php foreach ($participants as $p): 
@@ -438,7 +456,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         $clean_phone = preg_replace('/[^0-9]/', '', $p['phone'] ?? '');
                         if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
                         $p_name = $p['name'] ?? $p['client_name'] ?? '';
-                        $p_places = $p['places'] ?? $p['seats'] ?? 1;
+                        $p_places = $has_places && isset($p['places']) ? (int)$p['places'] : (int)($p['seats'] ?? 1);
 
                         // ГЕНЕРИРУЕМ ТЕКСТ ДЛЯ WHATSAPP
                         $wa_text = "Здравствуйте, " . explode(' ', $p_name)[0] . "! Жду вас завтра в " . ($event[$time_col] ?? 'назначенное время') . " на экскурсию.";
@@ -546,7 +564,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         <td><input form="formAddExpense" type="number" name="amount" class="t-input" min="1" placeholder="Сумма *" required></td>
                         <td><input form="formAddExpense" type="text" name="description" class="t-input" placeholder="Комментарий..."></td>
                         <td><input form="formAddExpense" type="file" name="receipt" accept="image/*" style="font-size: 11px; max-width:180px;"></td>
-                        <td><button form="formAddExpense" type="submit" class="btn-add-submit">+ Расход</button></td>
+                        <td style="text-align: right;"><button form="formAddExpense" type="submit" class="btn-add-submit" style="background: #EF4444;">Расход</button></td>
                     </tr>
 
                     <?php foreach ($expenses as $ex): ?>
@@ -579,7 +597,6 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
 </div>
 
 <script>
-    // Показ Toast уведомления
     function showToast(message, type = 'success') {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
@@ -608,7 +625,6 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
         document.querySelectorAll('.view_p_' + id).forEach(el => el.style.display = 'table-row');
     }
 
-    // Показ системных уведомлений из GET параметров
     document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const msg = urlParams.get('msg');
@@ -625,7 +641,6 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
             if (messages[msg]) {
                 showToast(messages[msg], msg.includes('deleted') ? 'error' : 'success');
             }
-            // Очищаем URL от параметра msg без перезагрузки
             window.history.replaceState({}, document.title, window.location.pathname + '?id=<?= $event_id ?>');
         }
     });

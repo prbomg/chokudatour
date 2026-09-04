@@ -57,13 +57,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_add_event']) && 
         $guide = $_POST['guide']; 
         $notes = trim($_POST['notes'] ?? '');
 
+        // Отправка уведомления в Telegram
         require_once 'telegram.php';
-$tour_name = $pdo->query("SELECT name FROM tours_catalog WHERE id = $tour_id")->fetchColumn();
-$msg = "🆕 <b>Новая заявка создана вручную!</b>\n";
-$msg .= "Тур: {$tour_name}\n";
-$msg .= "Дата: {$tour_date} в {$time}\n";
-$msg .= "Гид: {$guide}";
-sendTelegramMessage($msg);
+        $tour_name = $pdo->query("SELECT name FROM tours_catalog WHERE id = " . (int)$tour_id)->fetchColumn();
+        $msg = "🆕 <b>Новая заявка создана вручную!</b>\n";
+        $msg .= "Тур: {$tour_name}\n";
+        $msg .= "Дата: {$tour_date} в {$time}\n";
+        $msg .= "Гид: {$guide}";
+        sendTelegramMessage($msg);
         
         if (empty($tour_date) || empty($tour_id) || empty($guide)) { echo json_encode(['status' => 'error', 'message' => 'Заполните обязательные поля']); exit; }
 
@@ -88,10 +89,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
         
         $params = [];
         if ($current_user_role === 'admin') {
+            // ИСПРАВЛЕНИЕ: COALESCE(places, seats)
             $sql = "SELECT e.*, t.name AS tour_name,
-                    COALESCE((SELECT SUM(seats) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
+                    COALESCE((SELECT SUM(COALESCE(places, seats)) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
                     COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price,
-                    (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', COALESCE(seats,1)) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
+                    (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', COALESCE(places, seats, 1)) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
                     FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
                     WHERE e.tour_date < CURDATE() ORDER BY e.tour_date DESC LIMIT $limit OFFSET $offset";
         } else {
@@ -214,8 +216,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 foreach ($tourists as $t) {
                     $clean_phone = preg_replace('/[^0-9]/', '', $t['phone']);
                     if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
+                    $p_places = $t['places'] ?? $t['seats'] ?? 1;
                     $html .= "<div class='g-tourist-row'>";
-                    $html .= "<div class='g-tourist-info'><span class='g-tourist-name'>" . htmlspecialchars($t['client_name'] ?? $t['name'] ?? '') . "</span><span class='g-tourist-seats'>{$t['seats']} чел.</span></div>";
+                    $html .= "<div class='g-tourist-info'><span class='g-tourist-name'>" . htmlspecialchars($t['client_name'] ?? $t['name'] ?? '') . "</span><span class='g-tourist-seats'>{$p_places} чел.</span></div>";
                     $html .= "<div class='g-tourist-actions'><a href='tel:{$t['phone']}' class='g-btn-icon g-btn-call'>📞</a><a href='https://wa.me/{$clean_phone}' target='_blank' class='g-btn-icon g-btn-wa'>💬</a></div>";
                     $html .= "</div>";
                 }
@@ -266,10 +269,11 @@ if ($current_user_role === 'admin') {
     $tours = $pdo->query("SELECT * FROM tours_catalog ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
     $guides = $pdo->query("SELECT * FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
+    // ИСПРАВЛЕНИЕ: COALESCE(places, seats)
     $sql = "SELECT e.*, t.name AS tour_name,
-            COALESCE((SELECT SUM(seats) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
+            COALESCE((SELECT SUM(COALESCE(places, seats)) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
             COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price,
-            (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', COALESCE(seats,1)) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
+            (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', COALESCE(places, seats, 1)) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
             FROM events e JOIN tours_catalog t ON e.tour_id = t.id WHERE 1=1";
     $params = [];
 
@@ -803,11 +807,12 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                 <?php foreach ($tourists as $t): 
                     $clean_phone = preg_replace('/[^0-9]/', '', $t['phone']);
                     if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
+                    $p_places = $t['places'] ?? $t['seats'] ?? 1;
                 ?>
                     <div class="g-tourist-row">
                         <div class="g-tourist-info">
                             <span class="g-tourist-name"><?= htmlspecialchars($t['client_name'] ?? $t['name'] ?? '') ?></span>
-                            <span class="g-tourist-seats"><?= $t['seats'] ?? $t['places'] ?? 1 ?> чел.</span>
+                            <span class="g-tourist-seats"><?= $p_places ?> чел.</span>
                         </div>
                         <div class="g-tourist-actions">
                             <a href="tel:<?= htmlspecialchars($t['phone']) ?>" class="g-btn-icon g-btn-call" title="Позвонить">📞</a>

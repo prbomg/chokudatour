@@ -79,80 +79,103 @@ function getGuideName($ev, $pdo) {
 function renderTourCardHTML($ev, $pdo, $time_col) {
     $guide_name = getGuideName($ev, $pdo);
     $time_val = getTourStartTime($ev, $time_col);
-    $date_val = !empty($ev['event_date_formatted']) ? $ev['event_date_formatted'] : '';
+    $date_val = !empty($ev['event_date_formatted']) ? trim($ev['event_date_formatted']) : '';
     
-    // Используем блочную верстку (без flex), чтобы на мобилках ничего не ломалось
+    // ВЕРСТКА КАРТОЧКИ ТУРА (Modern SaaS Style)
     $html = "
-    <div style='background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.02);'>
+    <div style='background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; margin-bottom: 24px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);'>
         
-        <div style='border-bottom: 2px solid #F1F5F9; padding-bottom: 12px; margin-bottom: 14px;'>
-            <h3 style='margin: 0 0 8px 0; font-size: 18px; font-weight: 800; color: #0F172A; line-height: 1.3;'>" . htmlspecialchars($ev['tour_name'] ?? 'Маршрут') . "</h3>
-            " . ($date_val ? "<div style='display: inline-block; background: #EEF2FF; color: #4F46E5; font-weight: 800; font-size: 12px; padding: 4px 10px; border-radius: 99px;'>📅 {$date_val}</div>" : "") . "
+        <div style='background: #ffffff; padding: 24px; border-bottom: 1px solid #f1f5f9;'>
+            " . ($date_val ? "<div style='display: inline-block; background: #eff6ff; color: #4338ca; font-size: 13px; font-weight: 700; padding: 6px 14px; border-radius: 20px; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em;'>📅 {$date_val}</div>" : "") . "
+            
+            <h3 style='margin: 0 0 16px 0; font-size: 22px; font-weight: 800; color: #0f172a; line-height: 1.3;'>" . htmlspecialchars($ev['tour_name'] ?? 'Маршрут') . "</h3>
+            
+            <div style='display: block; font-size: 14px; color: #475569;'>
+                <span style='display: inline-block; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 16px; border-radius: 8px; margin-right: 8px; margin-bottom: 8px;'>
+                    <span style='color: #64748b;'>⏱ Старт:</span> <strong style='color: #0f172a; font-size: 15px;'>{$time_val}</strong>
+                </span>
+                <span style='display: inline-block; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 16px; border-radius: 8px; margin-bottom: 8px;'>
+                    <span style='color: #64748b;'>👤 Гид:</span> <strong style='color: #0f172a; font-size: 15px;'>" . htmlspecialchars($guide_name) . "</strong>
+                </span>
+            </div>
         </div>
         
-        <div style='margin-bottom: 16px; font-size: 14px; color: #475569;'>
-            <div style='display: inline-block; background: #F8FAFC; padding: 8px 14px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 8px; margin-right: 8px;'>
-                ⏱ <b>Время:</b> <span style='color: #4F46E5; font-weight: 800;'>{$time_val}</span>
-            </div>
-            <div style='display: inline-block; background: #F8FAFC; padding: 8px 14px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 8px;'>
-                👤 <b>Гид:</b> <span style='color: #0F172A; font-weight: 700;'>" . htmlspecialchars($guide_name) . "</span>
-            </div>
-        </div>";
+        <div style='padding: 24px;'>";
 
     try {
         $stmt_part = $pdo->prepare("SELECT * FROM participants WHERE event_id = ?");
         $stmt_part->execute([$ev['id']]);
         $participants = $stmt_part->fetchAll();
 
-        if (count($participants) > 0) {
-            $html .= "<div style='font-size: 13px; font-weight: 800; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px;'>Список туристов:</div>";
-            $html .= "<ul style='margin: 0; padding: 0; list-style: none;'>";
+        $count_pax = count($participants);
+        if ($count_pax > 0) {
+            $html .= "<h4 style='font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 16px 0;'>Список туристов ({$count_pax} броней):</h4>";
+            
             foreach ($participants as $p) {
+                // Ищем имя
                 $p_name = 'Без имени';
-                foreach (['name', 'fio', 'full_name', 'client', 'client_name', 'tourist'] as $col) {
+                foreach (['client_name', 'name', 'fio', 'full_name', 'client', 'tourist'] as $col) {
                     if (!empty($p[$col])) { $p_name = htmlspecialchars($p[$col]); break; }
                 }
+                
+                // Ищем телефон
                 $p_phone = 'Без телефона';
                 foreach (['phone', 'tel', 'telephone', 'contact'] as $col) {
                     if (!empty($p[$col])) { $p_phone = htmlspecialchars($p[$col]); break; }
                 }
 
-                $p_places = '';
-                foreach (['people_count', 'people', 'count', 'guests', 'places', 'tickets', 'qty', 'seats', 'persons'] as $col) {
-                    if (!empty($p[$col])) { $p_places = "👥 " . htmlspecialchars($p[$col]) . " чел."; break; }
-                }
+                // СТРОГИЙ ПРИОРИТЕТ ДЛЯ КОЛИЧЕСТВА МЕСТ
+                $p_places_val = $p['places'] ?? $p['seats'] ?? 1;
+                $p_places = "👤 " . htmlspecialchars($p_places_val) . " чел.";
 
+                // Ищем стоимость
                 $p_amount = '';
                 foreach (['price', 'amount', 'sum', 'total', 'to_pay', 'payment', 'debt', 'cost'] as $col) {
                     if (isset($p[$col]) && $p[$col] !== '') { $p_amount = "💰 " . number_format($p[$col], 0, '', ' ') . " ₽"; break; }
                 }
 
-                $status_tag = !empty($p['status']) ? "<span style='display: inline-block; background: #E2E8F0; color: #334155; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; margin-right: 6px; margin-bottom: 4px;'>" . htmlspecialchars($p['status']) . "</span>" : "";
-                $note = !empty($p['note']) ? "<div style='color: #64748B; font-size: 13px; margin-top: 6px; line-height: 1.4; border-left: 2px solid #CBD5E1; padding-left: 8px;'>📝 " . htmlspecialchars($p['note']) . "</div>" : "";
+                // Стиль статуса
+                $status_tag = "";
+                if (!empty($p['status'])) {
+                    $s_text = htmlspecialchars($p['status']);
+                    $bg = '#e2e8f0'; $col = '#334155';
+                    if (mb_stripos($s_text, 'оплач') !== false || mb_stripos($s_text, 'предоп') !== false) { $bg = '#d1fae5'; $col = '#065f46'; }
+                    elseif (mb_stripos($s_text, 'бронь') !== false) { $bg = '#fef3c7'; $col = '#92400e'; }
+                    elseif (mb_stripos($s_text, 'отмен') !== false) { $bg = '#fee2e2'; $col = '#991b1b'; }
+                    $status_tag = "<span style='display: inline-block; background: {$bg}; color: {$col}; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; margin-right: 8px; margin-bottom: 8px;'>{$s_text}</span>";
+                }
+
+                // Заметка
+                $note = !empty($p['note']) ? "<div style='color: #64748b; font-size: 14px; margin-top: 8px; background: #f8fafc; padding: 10px 14px; border-radius: 8px; border-left: 3px solid #cbd5e1;'>📝 " . htmlspecialchars($p['note']) . "</div>" : "";
 
                 $fin_pills = array_filter([$p_places, $p_amount]);
-                $fin_html = !empty($fin_pills) ? "<span style='display: inline-block; background: #ECFDF5; color: #047857; font-weight: 800; font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid #A7F3D0; margin-bottom: 4px;'>" . implode(" • ", $fin_pills) . "</span>" : "";
+                $fin_html = !empty($fin_pills) ? "<span style='display: inline-block; background: #f1f5f9; color: #475569; font-weight: 700; font-size: 13px; padding: 4px 12px; border-radius: 6px; margin-bottom: 8px;'>" . implode(" &nbsp;•&nbsp; ", $fin_pills) . "</span>" : "";
 
                 $html .= "
-                <li style='padding: 14px 12px; background: #F8FAFC; border-radius: 8px; margin-bottom: 10px; border: 1px solid #F1F5F9; display: block;'>
-                    <div style='font-size: 15px; font-weight: 700; color: #0F172A; margin-bottom: 8px;'>
-                        {$p_name} <span style='font-weight: 500; color: #64748B; font-size: 14px;'>({$p_phone})</span>
+                <div style='padding: 16px 0; border-bottom: 1px dashed #e2e8f0;'>
+                    <div style='margin-bottom: 8px;'>
+                        <strong style='font-size: 16px; color: #0f172a;'>{$p_name}</strong> 
+                        <span style='font-size: 14px; color: #64748b; margin-left: 6px;'>{$p_phone}</span>
                     </div>
-                    <div style='margin-bottom: 4px;'>
+                    <div style='margin-bottom: 0;'>
                         {$status_tag} {$fin_html}
                     </div>
                     {$note}
-                </li>";
+                </div>";
             }
-            $html .= "</ul>";
         } else {
-            $html .= "<div style='color: #EF4444; font-size: 13px; font-weight: 600; padding: 10px 14px; background: #FEF2F2; border-radius: 6px; border: 1px solid #FECACA;'>❌ Нет записанных туристов</div>";
+            $html .= "
+            <div style='background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; text-align: center;'>
+                <span style='color: #dc2626; font-size: 14px; font-weight: 600;'>❌ На этот тур пока нет записанных туристов</span>
+            </div>";
         }
     } catch (\PDOException $e) {
-        $html .= "<div style='color: #EF4444; font-size: 13px;'>❌ Ошибка участников</div>";
+        $html .= "<div style='color: #ef4444; font-size: 13px;'>❌ Ошибка загрузки участников</div>";
     }
 
-    $html .= "</div>";
+    $html .= "
+        </div>
+    </div>";
     return $html;
 }
 
@@ -163,38 +186,35 @@ function sendStyledEmail($to, $subject, $title_header, $body_content) {
     <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-        <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #F1F5F9; margin: 0; padding: 30px 10px; -webkit-font-smoothing: antialiased; }
-            .mail-card { max-width: 600px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.05); border: 1px solid #E2E8F0; }
-            .header-banner { background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%); padding: 30px 25px; text-align: center; color: #FFFFFF; }
-            .header-banner h1 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -0.02em; line-height: 1.2; }
-            .header-banner p { margin: 8px 0 0 0; font-size: 14px; opacity: 0.85; font-weight: 500; }
-            .mail-body { padding: 30px 25px; background: #F8FAFC; }
-            .mail-footer { text-align: center; padding: 20px; font-size: 12px; color: #94A3B8; background: #FFFFFF; border-top: 1px solid #E2E8F0; line-height: 1.5; }
-            
-            /* Адаптив для телефонов */
-            @media only screen and (max-width: 600px) {
-                body { padding: 0 !important; background-color: #FFFFFF !important; }
-                .mail-card { border-radius: 0 !important; border: none !important; box-shadow: none !important; width: 100% !important; max-width: 100% !important; }
-                .header-banner { padding: 25px 15px !important; }
-                .mail-body { padding: 20px 15px !important; }
-            }
-        </style>
     </head>
-    <body>
-        <div class='mail-card'>
-            <div class='header-banner'>
-                <h1>{$title_header}</h1>
-                <p>CRM Авторские туры • Автоматическая сводка</p>
+    <body style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 40px 10px; -webkit-font-smoothing: antialiased;'>
+        
+        <div style='max-width: 640px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);'>
+            
+            <!-- Заголовок письма -->
+            <div style='background-color: #0f172a; padding: 40px 30px; text-align: center;'>
+                <div style='width: 48px; height: 48px; background: #334155; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px;'>
+                    <span style='font-size: 24px;'>📊</span>
+                </div>
+                <h1 style='margin: 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;'>{$title_header}</h1>
+                <p style='margin: 8px 0 0 0; font-size: 15px; color: #94a3b8; font-weight: 500;'>Автоматическая сводка из вашей CRM</p>
             </div>
-            <div class='mail-body'>
+            
+            <!-- Тело письма (Карточки туров) -->
+            <div style='padding: 30px 20px; background: #fafafa;'>
                 {$body_content}
             </div>
-            <div class='mail-footer'>
-                Сообщение сгенерировано системой управления турами.<br>
-                Пожалуйста, не отвечайте на это письмо.
+            
+            <!-- Подвал письма -->
+            <div style='text-align: center; padding: 30px 20px; background: #ffffff; border-top: 1px solid #f1f5f9;'>
+                <p style='margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.6;'>
+                    Это автоматическое уведомление.<br>
+                    Пожалуйста, не отвечайте на это письмо.
+                </p>
             </div>
+            
         </div>
+        
     </body>
     </html>";
 
@@ -238,19 +258,24 @@ if ($action === 'daily' || $action === 'today_tomorrow') {
 
     $body_content = "";
     if (count($events_today) > 0) {
-        $body_content .= "<h2 style='font-size: 18px; font-weight: 900; color: #0F172A; margin: 0 0 15px 0;'>🔥 Сегодня (" . date('d.m.Y') . "):</h2>";
+        $body_content .= "<h2 style='font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 20px 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;'>🔥 Сегодня (" . date('d.m.Y') . ")</h2>";
         foreach ($events_today as $ev) { $body_content .= renderTourCardHTML($ev, $pdo, $time_col); }
     } else {
-        $body_content .= "<div style='background:#FFF; padding:15px; border-radius:10px; margin-bottom:25px; color:#64748B; font-size:14px; text-align:center; border: 1px solid #E2E8F0;'>Сегодня экскурсий нет.</div>";
+        $body_content .= "
+        <div style='background: #ffffff; padding: 24px; border-radius: 16px; margin-bottom: 30px; text-align: center; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+            <div style='font-size: 32px; margin-bottom: 12px;'>☕</div>
+            <h3 style='margin: 0 0 8px 0; font-size: 16px; color: #0f172a;'>Сегодня экскурсий нет</h3>
+            <p style='margin: 0; font-size: 14px; color: #64748b;'>Можно немного передохнуть.</p>
+        </div>";
     }
 
     if (count($events_tom) > 0) {
-        $body_content .= "<h2 style='font-size: 18px; font-weight: 900; color: #0F172A; margin: 25px 0 15px 0;'>🔔 Завтра (" . date('d.m.Y', strtotime('+1 day')) . "):</h2>";
+        $body_content .= "<h2 style='font-size: 20px; font-weight: 800; color: #0f172a; margin: 40px 0 20px 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;'>🔔 Завтра (" . date('d.m.Y', strtotime('+1 day')) . ")</h2>";
         foreach ($events_tom as $ev) { $body_content .= renderTourCardHTML($ev, $pdo, $time_col); }
     }
 
-    $subject = "📅 Сводка туров на сегодня (" . date('d.m') . ") и завтра (" . date('d.m', strtotime('+1 day')) . ")";
-    $sent = sendStyledEmail($admin_email, $subject, "Ежедневный дайджест туров", $body_content);
+    $subject = "📅 Сводка туров: сегодня (" . date('d.m') . ") и завтра (" . date('d.m', strtotime('+1 day')) . ")";
+    $sent = sendStyledEmail($admin_email, $subject, "Ежедневный дайджест", $body_content);
     echo $sent ? "Ежедневное письмо успешно отправлено!" : "Ошибка отправки почты.";
 
 } elseif ($action === 'weekly') {
@@ -261,7 +286,6 @@ if ($action === 'daily' || $action === 'today_tomorrow') {
     $start_week = date('Y-m-d', $monday_ts);
     $end_week = date('Y-m-d', $sunday_ts);
 
-    // ИСПРАВЛЕНИЕ ОШИБКИ 1064: Безопасное формирование ORDER BY
     $order_by_weekly = "ORDER BY e.{$date_col} ASC" . ($time_col ? ", e.{$time_col} ASC" : "");
 
     $stmt_week = $pdo->prepare("
@@ -278,9 +302,13 @@ if ($action === 'daily' || $action === 'today_tomorrow') {
         echo "На предстоящую неделю (" . date('d.m', $monday_ts) . " - " . date('d.m', $sunday_ts) . ") туров нет. Письмо не отправлено."; exit;
     }
 
-    $body_content = "<h2 style='font-size: 18px; font-weight: 900; color: #0F172A; margin: 0 0 20px 0;'>📊 Расписание на неделю (" . date('d.m', $monday_ts) . " — " . date('d.m.Y', $sunday_ts) . "):</h2>";
+    $body_content = "<h2 style='font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 20px 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;'>📊 Расписание (" . date('d.m', $monday_ts) . " — " . date('d.m.Y', $sunday_ts) . ")</h2>";
     foreach ($events_week as $ev) {
-        $ev['event_date_formatted'] = date('d.m (D)', strtotime($ev[$date_col]));
+        // Добавляем красивую форматированную дату с днем недели
+        $ru_days = ['Mon'=>'Пн', 'Tue'=>'Вт', 'Wed'=>'Ср', 'Thu'=>'Чт', 'Fri'=>'Пт', 'Sat'=>'Сб', 'Sun'=>'Вс'];
+        $day_key = date('D', strtotime($ev[$date_col]));
+        $ev['event_date_formatted'] = date('d.m', strtotime($ev[$date_col])) . " (" . $ru_days[$day_key] . ")";
+        
         $body_content .= renderTourCardHTML($ev, $pdo, $time_col);
     }
 
