@@ -3,6 +3,7 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'auth.php';
+require_once __DIR__ . '/participant_seats.php';
 
 $event_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($event_id <= 0) { header("Location: index.php"); exit; }
@@ -21,14 +22,9 @@ $time_col = 'time';
 
 // Убедимся, что колонки для финансов точно существуют
 $part_cols = $pdo->query("SHOW COLUMNS FROM participants")->fetchAll(PDO::FETCH_COLUMN);
-if(!in_array('places', $part_cols)) {
-    try { $pdo->exec("ALTER TABLE participants ADD COLUMN places INT DEFAULT 1"); } catch(PDOException $e) {}
-}
 if(!in_array('price', $part_cols)) {
     try { $pdo->exec("ALTER TABLE participants ADD COLUMN price INT DEFAULT 0"); } catch(PDOException $e) {}
 }
-
-$has_places = in_array('places', $part_cols);
 
 // Защита и создание таблицы источников, если зашли сюда впервые
 $pdo->exec("CREATE TABLE IF NOT EXISTS booking_sources (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, sort_order INT DEFAULT 999)");
@@ -49,7 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_participant'])) {
     $client_name = trim($_POST['client_name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $email = trim($_POST['email'] ?? '');
-    $seats = (int)($_POST['seats'] ?? 1);
+    $seats = max(1, (int)($_POST['seats'] ?? 1));
+    $seat_binding = participantSeatBinding($pdo, $seats);
     $price = (int)($_POST['price'] ?? 0);
     $source = trim($_POST['source'] ?? 'CRM');
     $status = trim($_POST['status'] ?? 'Бронь');
@@ -66,8 +63,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_participant'])) {
     }
 
     if ($client_name !== '' && $phone !== '') {
-        $q = "INSERT INTO participants (event_id, {$name_col}, phone, email, places, price, source, status, notes {$token_sql}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ? " . ($token_sql ? ", ?" : "") . ")";
-        $params = array_merge([$event_id, $client_name, $phone, $email, $seats, $price, $source, $status, $notes], $token_val);
+        $q = "INSERT INTO participants (event_id, {$name_col}, phone, email, {$seat_binding['columns']}, price, source, status, notes {$token_sql}) VALUES (?, ?, ?, ?, {$seat_binding['placeholders']}, ?, ?, ?, ? " . ($token_sql ? ", ?" : "") . ")";
+        $params = array_merge([$event_id, $client_name, $phone, $email], $seat_binding['values'], [$price, $source, $status, $notes], $token_val);
         $pdo->prepare($q)->execute($params);
     }
     header("Location: event.php?id=" . $event_id . "&msg=participant_added"); exit;
@@ -79,7 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])
     $client_name = trim($_POST['client_name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $email = trim($_POST['email'] ?? '');
-    $seats = (int)($_POST['seats'] ?? 1);
+    $seats = max(1, (int)($_POST['seats'] ?? 1));
+    $seat_binding = participantSeatBinding($pdo, $seats);
     $price = (int)($_POST['price'] ?? 0);
     $source = trim($_POST['source'] ?? 'CRM');
     $status = trim($_POST['status'] ?? 'Бронь');
@@ -87,8 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])
 
     $name_col = in_array('client_name', $part_cols) ? 'client_name' : 'name';
 
-    $pdo->prepare("UPDATE participants SET {$name_col}=?, phone=?, email=?, places=?, price=?, source=?, status=?, notes=? WHERE id=? AND event_id=?")
-        ->execute([$client_name, $phone, $email, $seats, $price, $source, $status, $notes, $p_id, $event_id]);
+    $pdo->prepare("UPDATE participants SET {$name_col}=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=? AND event_id=?")
+        ->execute(array_merge([$client_name, $phone, $email], $seat_binding['values'], [$price, $source, $status, $notes, $p_id, $event_id]));
     header("Location: event.php?id=" . $event_id . "&msg=participant_updated"); exit;
 }
 
@@ -161,7 +159,7 @@ $expenses = $stmt_ex->fetchAll(PDO::FETCH_ASSOC);
 $total_seats = 0; $total_income = 0;
 foreach ($participants as $p) {
     if (($p['status'] ?? '') !== 'Отмена') {
-        $p_places = $has_places && isset($p['places']) ? (int)$p['places'] : (int)($p['seats'] ?? 1);
+        $p_places = participantSeats($p);
         $total_seats += $p_places;
         $total_income += (int)($p['price'] ?? 0);
     }
@@ -456,7 +454,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         $clean_phone = preg_replace('/[^0-9]/', '', $p['phone'] ?? '');
                         if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
                         $p_name = $p['name'] ?? $p['client_name'] ?? '';
-                        $p_places = $has_places && isset($p['places']) ? (int)$p['places'] : (int)($p['seats'] ?? 1);
+                        $p_places = participantSeats($p);
 
                         // ГЕНЕРИРУЕМ ТЕКСТ ДЛЯ WHATSAPP
                         $wa_text = "Здравствуйте, " . explode(' ', $p_name)[0] . "! Жду вас завтра в " . ($event[$time_col] ?? 'назначенное время') . " на экскурсию.";
@@ -471,7 +469,15 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                             <div style="font-weight:600;"><?= htmlspecialchars($p['phone'] ?? '') ?></div>
                             <?php if (!empty($p['email'])): ?><span style="color:var(--text-muted); font-size:12px; font-weight:500;"><?= htmlspecialchars($p['email'] ?? '') ?></span><?php endif; ?>
                         </td>
-                        <td><strong><?= htmlspecialchars($p_places) ?></strong></td>
+                        <td>
+                            <strong><?= htmlspecialchars($p_places) ?></strong>
+                            <?php if (participantSeatsConflict($p)): ?>
+                            <small style="display:block; color:#92400E; max-width:200px; margin-top:6px;">
+                                Проверьте количество: в карточке <?= (int)$p['places'] ?>, в старой записи <?= (int)$p['seats'] ?>.
+                                Укажите верное число при редактировании.
+                            </small>
+                            <?php endif; ?>
+                        </td>
                         <td style="font-weight: 700; color: #10B981; font-size:15px;"><?= number_format($p['price'] ?? 0, 0, '', ' ') ?> ₽</td>
                         <td style="color: var(--text-muted); font-size: 13px; font-weight:600;"><?= htmlspecialchars($p['source'] ?? '') ?></td>
                         <td><span class="status-badge status-<?= md5($p['status'] ?? '') ?>"><?= htmlspecialchars($p['status'] ?? '') ?></span></td>
@@ -500,7 +506,11 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                             <input form="formEditP_<?= $p_id ?>" type="text" name="phone" class="t-input" value="<?= htmlspecialchars($p['phone'] ?? '') ?>" required>
                             <input form="formEditP_<?= $p_id ?>" type="email" name="email" class="t-input" value="<?= htmlspecialchars($p['email'] ?? '') ?>" placeholder="E-mail">
                         </td>
-                        <td><input form="formEditP_<?= $p_id ?>" type="number" name="seats" class="t-input" value="<?= htmlspecialchars($p_places) ?>" min="1" required style="min-width: 60px;"></td>
+                        <td><input form="formEditP_<?= $p_id ?>" type="number" name="seats" class="t-input" value="<?= htmlspecialchars($p_places) ?>" min="1" required style="min-width: 60px;">
+                            <?php if (participantSeatsConflict($p)): ?>
+                            <small style="display:block; color:#92400E;">Количество расходится: <?= (int)$p['places'] ?> / <?= (int)$p['seats'] ?>. Укажите верное число.</small>
+                            <?php endif; ?>
+                        </td>
                         <td><input form="formEditP_<?= $p_id ?>" type="number" name="price" class="t-input" value="<?= htmlspecialchars($p['price'] ?? '0') ?>" style="min-width: 80px;"></td>
                         <td>
                             <select form="formEditP_<?= $p_id ?>" name="source" class="t-input">

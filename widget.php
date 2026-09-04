@@ -3,6 +3,7 @@ error_reporting(0);
 ini_set('display_errors', 0);
 
 require_once 'db.php';
+require_once __DIR__ . '/participant_seats.php';
 require_once 'telegram.php';
 
 $status_msg = ''; $status_class = ''; $form_submitted = false;
@@ -40,7 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_booking'])) {
     $client_name = trim($_POST['client_name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $email = trim($_POST['email'] ?? '');
-    $seats = (int)($_POST['seats'] ?? 1);
+    $seats = max(1, (int)($_POST['seats'] ?? 1));
+    $seat_binding = participantSeatBinding($pdo, $seats);
     $notes = trim($_POST['notes'] ?? '');
 
     if ($tour_id > 0 && !empty($booking_date) && !empty($client_name) && !empty($phone)) {
@@ -98,8 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_booking'])) {
         }
 
         // Записываем участника
-        $sql = "INSERT INTO participants (event_id, client_name, seats, price, phone, email, source, status, notes) VALUES (?, ?, ?, ?, ?, ?, 'Сайт', 'Бронь', ?)";
-        if ($pdo->prepare($sql)->execute([$event_id, $client_name, $seats, $total_price, $phone, $email, $notes])) {
+        $sql = "INSERT INTO participants (event_id, client_name, {$seat_binding['columns']}, price, phone, email, source, status, notes) VALUES (?, ?, {$seat_binding['placeholders']}, ?, ?, ?, 'Сайт', 'Бронь', ?)";
+        if ($pdo->prepare($sql)->execute(array_merge([$event_id, $client_name], $seat_binding['values'], [$total_price, $phone, $email, $notes]))) {
             $status_msg = "Заявка успешно принята! Наш менеджер свяжется с вами для подтверждения.";
             $status_class = "success"; $form_submitted = true;
 

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/participant_seats.php';
 // cron_email.php
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -125,7 +126,7 @@ function renderTourCardHTML($ev, $pdo, $time_col) {
                 }
 
                 // СТРОГИЙ ПРИОРИТЕТ ДЛЯ КОЛИЧЕСТВА МЕСТ
-                $p_places_val = $p['places'] ?? $p['seats'] ?? 1;
+                $p_places_val = participantSeats($p);
                 $p_places = "👤 " . htmlspecialchars($p_places_val) . " чел.";
 
                 // Ищем стоимость

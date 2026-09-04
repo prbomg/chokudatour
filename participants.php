@@ -3,6 +3,7 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'auth.php';
+require_once __DIR__ . '/participant_seats.php';
 
 // --- РЕДАКТИРОВАНИЕ УЧАСТНИКА ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])) {
@@ -10,14 +11,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])
     $client_name = trim($_POST['client_name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $email = trim($_POST['email'] ?? '');
-    $seats = (int)($_POST['seats'] ?? 1);
+    $seats = max(1, (int)($_POST['seats'] ?? 1));
+    $seat_binding = participantSeatBinding($pdo, $seats);
     $price = (int)($_POST['price'] ?? 0);
     $source = trim($_POST['source'] ?? 'CRM');
     $status = trim($_POST['status'] ?? 'Бронь');
     $notes = trim($_POST['notes'] ?? '');
 
-    $pdo->prepare("UPDATE participants SET client_name=?, phone=?, email=?, seats=?, price=?, source=?, status=?, notes=? WHERE id=?")
-        ->execute([$client_name, $phone, $email, $seats, $price, $source, $status, $notes, $p_id]);
+    $pdo->prepare("UPDATE participants SET client_name=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=?")
+        ->execute(array_merge([$client_name, $phone, $email], $seat_binding['values'], [$price, $source, $status, $notes, $p_id]));
     
     // Редирект с сохранением GET-параметров поиска
     $qs = preg_replace('/&?msg=[^&]*/', '', $_SERVER['QUERY_STRING']);
@@ -75,6 +77,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
 
         foreach ($past_participants as $p) {
             $p_id = $p['id'];
+            $seats_warning = participantSeatsConflict($p)
+                ? "<small style='display:block; color:#92400E;'>Количество расходится: " . (int)$p['places'] . " / " . (int)$p['seats'] . ". Проверьте перед сохранением.</small>"
+                : '';
             $clean_phone = preg_replace('/[^0-9]/', '', $p['phone'] ?? '');
             if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
             $date_str = date('d.m.Y', strtotime($p['tour_date']));
@@ -99,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
                         {$email_html}
                     </div>
                 </td>
-                <td><span class='seats-badge' style='background:#E2E8F0; color:#475569;'>".htmlspecialchars($p['seats'] ?? '0')."</span></td>
+                <td><span class='seats-badge' style='background:#E2E8F0; color:#475569;'>".htmlspecialchars(participantSeats($p))."</span>{$seats_warning}</td>
                 <td class='col-price' style='color: #059669; opacity:0.8;'>{$price_str}</td>
                 <td style='color: var(--text-muted); font-size: 13px; font-weight:600;'>".htmlspecialchars($p['source'] ?? '')."</td>
                 <td><span class='status-badge status-".md5($p['status'] ?? '')."'>".htmlspecialchars($p['status'] ?? '')."</span></td>
@@ -139,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
                     <input form='formEditP_{$p_id}' type='text' name='phone' class='t-input' value='".htmlspecialchars($p['phone'] ?? '')."' required>
                     <input form='formEditP_{$p_id}' type='email' name='email' class='t-input' value='".htmlspecialchars($p['email'] ?? '')."' placeholder='E-mail'>
                 </td>
-                <td><input form='formEditP_{$p_id}' type='number' name='seats' class='t-input' value='".htmlspecialchars($p['seats'] ?? '1')."' min='1' required style='min-width: 50px;'></td>
+                <td><input form='formEditP_{$p_id}' type='number' name='seats' class='t-input' value='".htmlspecialchars(participantSeats($p))."' min='1' required style='min-width: 50px;'>{$seats_warning}</td>
                 <td><input form='formEditP_{$p_id}' type='number' name='price' class='t-input' value='".htmlspecialchars($p['price'] ?? '0')."' style='min-width: 70px;'></td>
                 <td>
                     <select form='formEditP_{$p_id}' name='source' class='t-input'>
@@ -221,7 +226,7 @@ $total_seats = 0;
 foreach ($participants as $p) {
     if (($p['status'] ?? '') !== 'Отмена') {
         $total_money += (int)($p['price'] ?? 0);
-        $total_seats += (int)($p['seats'] ?? 0);
+        $total_seats += participantSeats($p);
     }
 }
 
@@ -532,7 +537,11 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                                 <?php if (!empty($p['email'])): ?><span style="color:var(--text-muted); font-size:12px; font-weight:500;"><?= htmlspecialchars($p['email'] ?? '') ?></span><?php endif; ?>
                             </div>
                         </td>
-                        <td><span class="seats-badge"><?= htmlspecialchars($p['seats'] ?? '0') ?></span></td>
+                        <td><span class="seats-badge"><?= htmlspecialchars(participantSeats($p)) ?></span>
+                            <?php if (participantSeatsConflict($p)): ?>
+                            <small style="display:block; color:#92400E;">Количество расходится: <?= (int)$p['places'] ?> / <?= (int)$p['seats'] ?>. Проверьте перед сохранением.</small>
+                            <?php endif; ?>
+                        </td>
                         <td class="col-price"><?= number_format($p['price'] ?? 0, 0, '', ' ') ?> ₽</td>
                         <td style="color: var(--text-muted); font-size: 13px; font-weight:600;"><?= htmlspecialchars($p['source'] ?? '') ?></td>
                         <td><span class="status-badge status-<?= md5($p['status'] ?? '') ?>"><?= htmlspecialchars($p['status'] ?? '') ?></span></td>
@@ -568,7 +577,11 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                             <input form="formEditP_<?= $p_id ?>" type="text" name="phone" class="t-input" value="<?= htmlspecialchars($p['phone'] ?? '') ?>" required>
                             <input form="formEditP_<?= $p_id ?>" type="email" name="email" class="t-input" value="<?= htmlspecialchars($p['email'] ?? '') ?>" placeholder="E-mail">
                         </td>
-                        <td><input form="formEditP_<?= $p_id ?>" type="number" name="seats" class="t-input" value="<?= htmlspecialchars($p['seats'] ?? '1') ?>" min="1" required style="min-width: 50px;"></td>
+                        <td><input form="formEditP_<?= $p_id ?>" type="number" name="seats" class="t-input" value="<?= htmlspecialchars(participantSeats($p)) ?>" min="1" required style="min-width: 50px;">
+                            <?php if (participantSeatsConflict($p)): ?>
+                            <small style="display:block; color:#92400E;">Количество расходится: <?= (int)$p['places'] ?> / <?= (int)$p['seats'] ?>. Проверьте перед сохранением.</small>
+                            <?php endif; ?>
+                        </td>
                         <td><input form="formEditP_<?= $p_id ?>" type="number" name="price" class="t-input" value="<?= htmlspecialchars($p['price'] ?? '0') ?>" style="min-width: 70px;"></td>
                         <td>
                             <select form="formEditP_<?= $p_id ?>" name="source" class="t-input">

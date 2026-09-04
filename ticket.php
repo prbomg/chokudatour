@@ -2,6 +2,7 @@
 error_reporting(0);
 ini_set('display_errors', 0);
 
+require_once __DIR__ . '/participant_seats.php';
 require_once 'db.php'; // Подключаем только базу данных, без авторизации
 
 $token = $_GET['token'] ?? '';
@@ -187,7 +188,7 @@ function renderList($text, $icon) {
         <?php endif; ?>
 
         <div class="client-name-footer">
-            Билет оформлен для: <strong><?= htmlspecialchars($ticket['client_name']) ?></strong> (<?= $ticket['seats'] ?> чел.)<br><br>
+            Билет оформлен для: <strong><?= htmlspecialchars($ticket['client_name']) ?></strong> (<?= participantSeats($ticket) ?> чел.)<br><br>
             До встречи на маршруте! 👋
         </div>
     </div>

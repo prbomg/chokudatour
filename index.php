@@ -3,6 +3,8 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'auth.php';
+require_once __DIR__ . '/participant_seats.php';
+$participant_seats_sql = participantSeatsSql($pdo);
 
 // Функция для генерации уникального цвета гида
 function getGuideColorStyle($guideName) {
@@ -89,11 +91,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
         
         $params = [];
         if ($current_user_role === 'admin') {
-            // ИСПРАВЛЕНИЕ: COALESCE(places, seats)
+            // Единый подсчет мест для всех экранов
             $sql = "SELECT e.*, t.name AS tour_name,
-                    COALESCE((SELECT SUM(COALESCE(places, seats)) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
+                    COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
                     COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price,
-                    (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', COALESCE(places, seats, 1)) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
+                    (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', {$participant_seats_sql}) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
                     FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
                     WHERE e.tour_date < CURDATE() ORDER BY e.tour_date DESC LIMIT $limit OFFSET $offset";
         } else {
@@ -216,7 +218,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 foreach ($tourists as $t) {
                     $clean_phone = preg_replace('/[^0-9]/', '', $t['phone']);
                     if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
-                    $p_places = $t['places'] ?? $t['seats'] ?? 1;
+                    $p_places = participantSeats($t);
                     $html .= "<div class='g-tourist-row'>";
                     $html .= "<div class='g-tourist-info'><span class='g-tourist-name'>" . htmlspecialchars($t['client_name'] ?? $t['name'] ?? '') . "</span><span class='g-tourist-seats'>{$p_places} чел.</span></div>";
                     $html .= "<div class='g-tourist-actions'><a href='tel:{$t['phone']}' class='g-btn-icon g-btn-call'>📞</a><a href='https://wa.me/{$clean_phone}' target='_blank' class='g-btn-icon g-btn-wa'>💬</a></div>";
@@ -269,11 +271,12 @@ if ($current_user_role === 'admin') {
     $tours = $pdo->query("SELECT * FROM tours_catalog ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
     $guides = $pdo->query("SELECT * FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-    // ИСПРАВЛЕНИЕ: COALESCE(places, seats)
+    // Единый подсчет мест для всех экранов
     $sql = "SELECT e.*, t.name AS tour_name,
-            COALESCE((SELECT SUM(COALESCE(places, seats)) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
+            COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
             COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price,
-            (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', COALESCE(places, seats, 1)) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
+            COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0) as total_expenses,
+            (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', {$participant_seats_sql}) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
             FROM events e JOIN tours_catalog t ON e.tour_id = t.id WHERE 1=1";
     $params = [];
 
@@ -299,10 +302,11 @@ if ($current_user_role === 'admin') {
     $stmt = $pdo->prepare($sql); $stmt->execute($params); $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $dash_tours = count($events); $dash_clients = 0; $dash_income = 0; $dash_expenses = 0;
-    foreach ($events as $ev) { $dash_clients += $ev['seats_count']; $dash_income += $ev['total_price']; }
-    
-    $stmt_exp = $pdo->query("SELECT SUM(amount) FROM expenses");
-    $dash_expenses = $stmt_exp->fetchColumn() ?: 0;
+    foreach ($events as $ev) {
+        $dash_clients += $ev['seats_count'];
+        $dash_income += $ev['total_price'];
+        $dash_expenses += $ev['total_expenses'];
+    }
     $dash_profit = $dash_income - $dash_expenses;
 } else {
     $guide_name = $_SESSION['user_name'];
@@ -391,7 +395,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         .btn-filter:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 6px 15px rgba(79, 70, 229, 0.3);}
         
         /* Идеальная SaaS Таблица с закрепленной шапкой */
-        .table-responsive { width: 100%; background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow-x: clip;}
+        .table-responsive { width: 100%; background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow-x: auto;}
         table { width: 100%; min-width: 950px; border-collapse: separate; border-spacing: 0; }
         th, td { padding: 16px 20px; text-align: left; font-size: 14px; vertical-align: middle; border-bottom: 1px solid #F1F5F9;}
         th { position: sticky; top: 0; z-index: 10; background-color: rgba(255,255,255,0.95); backdrop-filter: blur(8px); font-weight: 700; font-size: 12px; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; cursor:pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.05), 0 1px 0 #F1F5F9; letter-spacing: 0.05em;}
@@ -511,7 +515,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 
             /* Превращаем таблицу в карточки */
             .table-responsive { border-radius: 12px; background: transparent; box-shadow: none; overflow: visible;}
-            .table-responsive table, .table-responsive thead, .table-responsive tbody, .table-responsive tr, .table-responsive th, .table-responsive td { display: block; width: 100%; box-sizing: border-box; }
+            .table-responsive table, .table-responsive thead, .table-responsive tbody, .table-responsive tr, .table-responsive th, .table-responsive td { display: block; width: 100%; min-width: 0; box-sizing: border-box; }
             .table-responsive thead { display: none; } /* Прячем заголовки таблицы */
             
             .table-responsive tr { 
@@ -530,7 +534,13 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                 padding: 10px 0; 
                 border-bottom: 1px dashed #E2E8F0; 
                 text-align: right; 
+                gap: 8px;
+                flex-wrap: wrap;
+                overflow-wrap: anywhere;
             }
+            .table-responsive td > * { min-width: 0; max-width: 100%; }
+            .table-responsive .tourist-chip { flex-wrap: wrap; white-space: normal; }
+            .table-responsive .guide-tag { white-space: normal; }
             .table-responsive td:last-child { border-bottom: none; padding-bottom: 0; }
             
             /* Выводим названия колонок слева (берется из атрибута data-label) */
@@ -544,8 +554,8 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                 margin-right: 15px; 
             }
             
-            .action-cell { justify-content: flex-end; width: 100%; gap: 10px;}
-            .btn-icon { width: 44px; height: 44px; }
+            .action-cell { justify-content: flex-end; flex-wrap: wrap; width: auto; gap: 10px;}
+            .btn-icon { width: 44px; height: 44px; flex-shrink: 0; }
             
             /* Фиксы для инлайн-форм на мобилке */
             .add-form-row { padding: 15px !important; }
@@ -807,7 +817,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                 <?php foreach ($tourists as $t): 
                     $clean_phone = preg_replace('/[^0-9]/', '', $t['phone']);
                     if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
-                    $p_places = $t['places'] ?? $t['seats'] ?? 1;
+                    $p_places = participantSeats($t);
                 ?>
                     <div class="g-tourist-row">
                         <div class="g-tourist-info">
@@ -910,11 +920,11 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 
     function toggleEditE(id) {
         document.querySelectorAll('.view_e_' + id).forEach(el => el.style.display = 'none');
-        document.querySelectorAll('.edit_e_' + id).forEach(el => el.style.display = 'table-row');
+        document.querySelectorAll('.edit_e_' + id).forEach(el => el.style.display = '');
     }
     function cancelEditE(id) {
         document.querySelectorAll('.edit_e_' + id).forEach(el => el.style.display = 'none');
-        document.querySelectorAll('.view_e_' + id).forEach(el => el.style.display = 'table-row');
+        document.querySelectorAll('.view_e_' + id).forEach(el => el.style.display = '');
     }
 
     function openExpenseModal(eventId, tourName) {

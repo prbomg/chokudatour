@@ -2,6 +2,7 @@
 error_reporting(0);
 ini_set('display_errors', 0);
 
+require_once __DIR__ . '/participant_seats.php';
 require_once 'db.php';
 
 // Проверяем / создаем секретный токен для Админа
@@ -83,8 +84,8 @@ foreach ($events as $ev) {
     $desc .= "ТУРИСТЫ:\\n";
     
     foreach ($participants as $p) {
-        $total_seats += $p['seats'];
-        $desc .= "👤 " . $p['client_name'] . " (" . $p['seats'] . " чел.)\\n";
+        $total_seats += participantSeats($p);
+        $desc .= "👤 " . $p['client_name'] . " (" . participantSeats($p) . " чел.)\\n";
         $desc .= "📞 Тел: " . $p['phone'] . "\\n";
         if (!empty($p['notes'])) {
             $clean_note = str_replace(["\r", "\n"], " ", $p['notes']);

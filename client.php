@@ -3,6 +3,7 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once 'auth.php';
+require_once __DIR__ . '/participant_seats.php';
 
 if ($current_user_role !== 'admin') {
     die("<h2 style='text-align:center; margin-top:50px;'>Доступ закрыт.</h2>");
@@ -13,7 +14,6 @@ if (!$phone) { header("Location: clients.php"); exit; }
 
 $part_cols = $pdo->query("SHOW COLUMNS FROM participants")->fetchAll(PDO::FETCH_COLUMN);
 $name_col = in_array('client_name', $part_cols) ? 'client_name' : 'name';
-$seats_col = in_array('places', $part_cols) ? 'places' : 'seats';
 
 // --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ДЛЯ ТЕГОВ ---
 try {
@@ -351,7 +351,7 @@ function getStatusColor($status) {
                             <tr>
                                 <td style="white-space:nowrap; font-weight:600; color:var(--text-muted);"><?= date('d.m.Y', strtotime($h['tour_date'])) ?></td>
                                 <td><a href="event.php?id=<?= $h['event_id'] ?>" class="tour-link"><?= htmlspecialchars($h['tour_name']) ?></a></td>
-                                <td><span style="font-weight:800;"><?= $h[$seats_col] ?></span></td>
+                                <td><span style="font-weight:800;"><?= participantSeats($h) ?></span></td>
                                 <td style="font-weight:700; color:var(--text-main);"><?= number_format($h['price'], 0, '', ' ') ?> ₽</td>
                                 <td><span class="status-badge" style="<?= getStatusColor($h['status']) ?>"><?= htmlspecialchars($h['status']) ?></span></td>
                             </tr>

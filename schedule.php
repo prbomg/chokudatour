@@ -3,6 +3,8 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once 'auth.php';
+require_once __DIR__ . '/participant_seats.php';
+$participant_seats_sql = participantSeatsSql($pdo);
 
 if ($current_user_role !== 'admin') {
     die("<h2 style='text-align:center; margin-top:50px; font-family:sans-serif;'>Доступ закрыт. Только для администратора.</h2>");
@@ -161,7 +163,7 @@ foreach ($timeoffs_raw as $to) {
 }
 
 // Туры на текущий месяц
-$stmt_ev = $pdo->prepare("SELECT e.*, t.name AS tour_name, COALESCE((SELECT SUM(seats) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count FROM events e JOIN tours_catalog t ON e.tour_id = t.id WHERE e.tour_date BETWEEN ? AND ? ORDER BY e.time ASC, t.name ASC");
+$stmt_ev = $pdo->prepare("SELECT e.*, t.name AS tour_name, COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count FROM events e JOIN tours_catalog t ON e.tour_id = t.id WHERE e.tour_date BETWEEN ? AND ? ORDER BY e.time ASC, t.name ASC");
 $stmt_ev->execute([$start_date_sql, $end_date_sql]);
 $events_raw = $stmt_ev->fetchAll(PDO::FETCH_ASSOC);
 $events_map = [];

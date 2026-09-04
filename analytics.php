@@ -3,6 +3,8 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once 'auth.php';
+require_once __DIR__ . '/participant_seats.php';
+$participant_seats_sql = participantSeatsSql($pdo, 'p');
 
 if ($current_user_role !== 'admin') {
     die("<h2 style='text-align:center; margin-top:50px; font-family:sans-serif;'>Доступ закрыт. Только для администратора.</h2>");
@@ -15,7 +17,7 @@ $date_to = $_GET['date_to'] ?? date('Y-m-t');      // По умолчанию д
 // --- 1. СБОР ОСНОВНОЙ ФИНАНСОВОЙ СТАТИСТИКИ ---
 // Выручка и количество мест (только не отмененные)
 $stmt_rev = $pdo->prepare("
-    SELECT SUM(p.price) as total_revenue, SUM(p.seats) as total_seats 
+    SELECT SUM(p.price) as total_revenue, SUM({$participant_seats_sql}) as total_seats
     FROM participants p 
     JOIN events e ON p.event_id = e.id 
     WHERE p.status != 'Отмена' AND e.tour_date BETWEEN ? AND ?
@@ -48,7 +50,7 @@ function getSourceColor($name) {
 
 // --- 2. СТАТИСТИКА ПО ИСТОЧНИКАМ (Воронка) ---
 $stmt_sources = $pdo->prepare("
-    SELECT p.source, SUM(p.price) as rev, SUM(p.seats) as pax 
+    SELECT p.source, SUM(p.price) as rev, SUM({$participant_seats_sql}) as pax
     FROM participants p 
     JOIN events e ON p.event_id = e.id 
     WHERE p.status != 'Отмена' AND e.tour_date BETWEEN ? AND ? 
@@ -71,7 +73,7 @@ foreach ($sources as $s) {
 
 // --- 3. ТОП ТУРОВ (ДОРАБОТАНО: Считаем расходы и маржу по туру) ---
 $stmt_top_tours = $pdo->prepare("
-    SELECT t.id, t.name, SUM(p.price) as rev, SUM(p.seats) as pax 
+    SELECT t.id, t.name, SUM(p.price) as rev, SUM({$participant_seats_sql}) as pax
     FROM participants p 
     JOIN events e ON p.event_id = e.id 
     JOIN tours_catalog t ON e.tour_id = t.id 
@@ -99,7 +101,7 @@ unset($tt);
 
 // --- 4. ТОП ГИДОВ ---
 $stmt_top_guides = $pdo->prepare("
-    SELECT e.guide, SUM(p.price) as rev, SUM(p.seats) as pax 
+    SELECT e.guide, SUM(p.price) as rev, SUM({$participant_seats_sql}) as pax
     FROM participants p 
     JOIN events e ON p.event_id = e.id 
     WHERE p.status != 'Отмена' AND e.tour_date BETWEEN ? AND ? 
@@ -123,7 +125,7 @@ $stat_year = isset($_GET['stat_year']) ? (int)$_GET['stat_year'] : (int)date('Y'
 
 // Доходы по месяцам
 $stmt_m_rev = $pdo->prepare("
-    SELECT MONTH(e.tour_date) as m, SUM(p.price) as rev, SUM(p.seats) as pax 
+    SELECT MONTH(e.tour_date) as m, SUM(p.price) as rev, SUM({$participant_seats_sql}) as pax
     FROM participants p 
     JOIN events e ON p.event_id = e.id 
     WHERE p.status != 'Отмена' AND YEAR(e.tour_date) = ? 
