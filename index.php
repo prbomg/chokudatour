@@ -319,7 +319,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
     <?php include 'navbar.php'; ?>
     <header class="header-box workspace-header">
         <div><div class="workspace-eyebrow">CHOKUDA TOUR · РАБОЧЕЕ ПРОСТРАНСТВО</div><h1>Выезды</h1><p>Поездки, туристы и всё, что важно для организации.</p></div>
-        <button type="button" class="workspace-add" id="toggleAddEvent" aria-controls="add_event_row" aria-expanded="true">+ Добавить выезд</button>
+        <button type="button" class="workspace-add" id="toggleAddEvent" aria-controls="addEventDialog" aria-haspopup="dialog">+ Добавить выезд</button>
     </header>
     
     <?php if ($filter_error): ?><p role="alert" style="color:#B91C1C;"><?= htmlspecialchars($filter_error) ?></p><?php endif; ?>
@@ -361,6 +361,20 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         </div>
     <?php endif; ?>
 
+    <dialog id="addEventDialog" class="add-event-dialog" aria-labelledby="addEventTitle">
+        <div class="add-dialog-heading"><div><h2 id="addEventTitle">Новый выезд</h2><p>Выберите маршрут, дату и назначьте гида.</p></div><button type="button" class="btn-icon" data-close-add aria-label="Закрыть">✕</button></div>
+        <div class="add-dialog-fields">
+            <label class="add-dialog-wide" for="add_tour_id">Маршрут *<select form="ajaxAddEventForm" name="tour_id" id="add_tour_id" class="t-input" required onchange="updateDefaultTime()"><option value="" disabled selected>Выберите тур...</option><?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?></select></label>
+            <label for="add_date">Дата *<input form="ajaxAddEventForm" id="add_date" type="date" name="tour_date" class="t-input" required></label>
+            <label for="add_time">Время старта<input form="ajaxAddEventForm" type="time" name="time" id="add_time" class="t-input" oninput="this.dataset.manual='1'"></label>
+            <p class="add-dialog-hint add-dialog-wide">Время подставится из маршрута. Его можно изменить вручную.</p>
+            <label class="add-dialog-wide" for="add_guide">Гид<select form="ajaxAddEventForm" name="guide" id="add_guide" class="t-input" required><option value="Не назначен">Не назначен</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></label>
+            <label class="add-dialog-wide" for="add_notes">Примечание<textarea form="ajaxAddEventForm" id="add_notes" name="notes" class="t-input" rows="3" placeholder="Пожелания и особенности поездки"></textarea></label>
+        </div>
+        <p id="addEventError" role="alert" hidden></p>
+        <div class="add-dialog-actions"><button type="button" class="btn-cancel" data-close-add>Отмена</button><button form="ajaxAddEventForm" type="submit" class="workspace-add" id="submitAddBtn">Сохранить выезд</button></div>
+    </dialog>
+
     <form id="ajaxAddEventForm" method="POST" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>"><?= formTokenInput() ?><input type="hidden" name="ajax_add_event" value="1"></form>
     <?php foreach ($events as $ev): ?>
         <form id="formEditE_<?= $ev['id'] ?>" method="POST" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>"><?= formTokenInput() ?>
@@ -386,21 +400,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
             </thead>
             <tbody id="eventsTableBody">
                 
-                <tr class="add-form-row" id="add_event_row">
-                    <td data-label="Дата" style="display:flex; gap:5px; border-bottom: none;">
-                        <input form="ajaxAddEventForm" type="date" name="tour_date" class="t-input" required title="Дата экскурсии" style="flex:1;">
-                        <input form="ajaxAddEventForm" type="time" name="time" id="add_time" class="t-input" title="Время старта (оставьте пустым для автоподстановки)" style="width:auto;" oninput="this.dataset.manual='1'">
-                    </td>
-                    <td data-label="Тур">
-                        <select form="ajaxAddEventForm" name="tour_id" id="add_tour_id" class="t-input" required title="Название тура" onchange="updateDefaultTime()">
-                            <option value="" disabled selected>Выберите тур...</option>
-                            <?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?>
-                        </select>
-                    </td>
-                    <td data-label="Гид"><select form="ajaxAddEventForm" name="guide" class="t-input" required title="Назначить гида"><option value="Не назначен">Не назначен</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></td>
-                    <td data-label="Примечание" colspan="3"><input form="ajaxAddEventForm" type="text" name="notes" class="t-input" placeholder="Примечание (опционально)..."></td>
-                    <td data-label="Действие" colspan="2"><button form="ajaxAddEventForm" type="submit" class="btn-add-submit" id="submitAddBtn">Сохранить выезд</button></td>
-                </tr>
+
                 
                 <?php if (count($events) === 0): ?>
                 <tr>

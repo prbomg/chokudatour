@@ -97,8 +97,7 @@ const {tourTimes} = window.homePageConfig;
             const response = await fetch('index.php', {method:'POST', body, headers:{'X-Requested-With':'XMLHttpRequest'}});
             const data = await response.json();
             if (!response.ok || data.status !== 'success') throw new Error(data.message || 'Не удалось загрузить историю.');
-            const addRow = document.getElementById('add_event_row');
-            if (addRow) addRow.insertAdjacentHTML('afterend', data.html);
+            document.getElementById('eventsTableBody')?.insertAdjacentHTML('afterbegin', data.html);
             document.getElementById('guideCardsContainer')?.insertAdjacentHTML('afterbegin', data.html);
             if (data.forms) document.getElementById('ajaxFormsContainer')?.insertAdjacentHTML('beforeend', data.forms);
             pastCount += data.count;
@@ -128,6 +127,8 @@ const {tourTimes} = window.homePageConfig;
         event.preventDefault();
         if (form.dataset.saving) return;
         form.dataset.saving = '1';
+        const formError = form.id === 'ajaxAddEventForm' && document.getElementById('addEventError');
+        if (formError) formError.hidden = true;
         const submit = event.submitter;
         if (submit) submit.disabled = true;
         try {
@@ -143,7 +144,8 @@ const {tourTimes} = window.homePageConfig;
             } catch {}
             saveState(); window.location.assign(config.url);
         } catch (error) {
-            showToast(error.message || 'Ошибка соединения. Проверьте данные перед повтором.', 'error');
+            if (formError) { formError.textContent = error.message || 'Не удалось сохранить. Повторите попытку.'; formError.hidden = false; }
+            else showToast(error.message || 'Ошибка соединения. Проверьте данные перед повтором.', 'error');
         } finally {
             delete form.dataset.saving; if (submit) submit.disabled = false;
         }
@@ -166,17 +168,11 @@ const {tourTimes} = window.homePageConfig;
     })();
 })();
 
-// Progressive disclosure keeps the quick form available without JavaScript.
+// Native dialog provides focus containment, Escape and focus restoration.
 (() => {
     const toggle = document.getElementById('toggleAddEvent');
-    const row = document.getElementById('add_event_row');
-    if (!toggle || !row) return;
-    row.hidden = true;
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.addEventListener('click', () => {
-        row.hidden = !row.hidden;
-        toggle.setAttribute('aria-expanded', String(!row.hidden));
-        toggle.textContent = row.hidden ? '+ Добавить выезд' : 'Закрыть форму';
-        if (!row.hidden) row.querySelector('input')?.focus();
-    });
+    const dialog = document.getElementById('addEventDialog');
+    if (!toggle || !dialog) return;
+    toggle.addEventListener('click', () => dialog.showModal());
+    dialog.querySelectorAll('[data-close-add]').forEach(button => button.addEventListener('click', () => dialog.close()));
 })();
