@@ -3,10 +3,16 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'auth.php';
+require_once __DIR__ . '/homepage_helpers.php';
+require_once __DIR__ . '/request_helpers.php';
+$return_url = homeReturnUrl($_GET['return_to'] ?? 'index.php');
+$return_suffix = '&return_to=' . rawurlencode($return_url);
+if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 require_once __DIR__ . '/participant_seats.php';
 
 $event_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-if ($event_id <= 0) { header("Location: index.php"); exit; }
+if ($event_id <= 0) { header('Location: ' . $return_url); exit; }
+requireEventAccess($pdo, $event_id, $current_user_role, $current_user_name);
 
 // Умный поиск колонок
 $events_cols = $pdo->query("SHOW COLUMNS FROM events")->fetchAll(PDO::FETCH_COLUMN);
@@ -37,7 +43,7 @@ if ($count_sources == 0) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_event_details']) && $current_user_role === 'admin') {
     $pdo->prepare("UPDATE events SET {$date_col} = ?, {$time_col} = ?, {$guide_col} = ? WHERE id = ?")
         ->execute([$_POST['tour_date'], $_POST['time'], $_POST['guide'], $event_id]);
-    header("Location: event.php?id=" . $event_id . "&msg=event_updated"); exit;
+    header("Location: event.php?id=" . $event_id . $return_suffix . "&msg=event_updated"); exit;
 }
 
 // --- ДОБАВЛЕНИЕ УЧАСТНИКА ---
@@ -67,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_participant'])) {
         $params = array_merge([$event_id, $client_name, $phone, $email], $seat_binding['values'], [$price, $source, $status, $notes], $token_val);
         $pdo->prepare($q)->execute($params);
     }
-    header("Location: event.php?id=" . $event_id . "&msg=participant_added"); exit;
+    header("Location: event.php?id=" . $event_id . $return_suffix . "&msg=participant_added"); exit;
 }
 
 // --- РЕДАКТИРОВАНИЕ УЧАСТНИКА ---
@@ -87,13 +93,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])
 
     $pdo->prepare("UPDATE participants SET {$name_col}=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=? AND event_id=?")
         ->execute(array_merge([$client_name, $phone, $email], $seat_binding['values'], [$price, $source, $status, $notes, $p_id, $event_id]));
-    header("Location: event.php?id=" . $event_id . "&msg=participant_updated"); exit;
+    header("Location: event.php?id=" . $event_id . $return_suffix . "&msg=participant_updated"); exit;
 }
 
 // --- УДАЛЕНИЕ УЧАСТНИКА ---
-if (isset($_GET['del_participant'])) {
-    $pdo->prepare("DELETE FROM participants WHERE id = ? AND event_id = ?")->execute([(int)$_GET['del_participant'], $event_id]);
-    header("Location: event.php?id=" . $event_id . "&msg=participant_deleted"); exit;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_participant']) && $current_user_role === 'admin') {
+    $pdo->prepare("DELETE FROM participants WHERE id = ? AND event_id = ?")->execute([(int)$_POST['del_participant'], $event_id]);
+    header("Location: event.php?id=" . $event_id . $return_suffix . "&msg=participant_deleted"); exit;
 }
 
 // --- ДОБАВЛЕНИЕ РАСХОДА ---
@@ -116,13 +122,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_expense'])) {
         $pdo->prepare("INSERT INTO expenses (event_id, amount, category, description, receipt_path) VALUES (?, ?, ?, ?, ?)")
             ->execute([$event_id, $amount, $category, $description, $receipt_path]);
     }
-    header("Location: event.php?id=" . $event_id . "&msg=expense_added"); exit;
+    header("Location: event.php?id=" . $event_id . $return_suffix . "&msg=expense_added"); exit;
 }
 
 // --- УДАЛЕНИЕ РАСХОДА ---
-if (isset($_GET['del_expense'])) {
-    $pdo->prepare("DELETE FROM expenses WHERE id = ? AND event_id = ?")->execute([(int)$_GET['del_expense'], $event_id]);
-    header("Location: event.php?id=" . $event_id . "&msg=expense_deleted"); exit;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_expense'])) {
+    $pdo->prepare("DELETE FROM expenses WHERE id = ? AND event_id = ?")->execute([(int)$_POST['del_expense'], $event_id]);
+    header("Location: event.php?id=" . $event_id . $return_suffix . "&msg=expense_deleted"); exit;
 }
 
 // Загрузка списков
@@ -165,7 +171,7 @@ foreach ($participants as $p) {
     }
 }
 $total_expenses = 0;
-foreach ($expenses as $ex) { $total_expenses += (int)($ex['amount'] ?? 0); }
+foreach ($expenses as $ex) { $total_expenses += (float)($ex['amount'] ?? 0); }
 $profit = $total_income - $total_expenses;
 
 $months_ru = ['', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -316,7 +322,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
 <div class="container">
     <?php include 'navbar.php'; ?>
 
-    <a href="index.php" class="back-link">← Вернуться к списку</a>
+    <a href="<?= htmlspecialchars($return_url, ENT_QUOTES) ?>" class="back-link">← Вернуться к списку</a>
 
     <div class="event-header">
         <div class="event-title-row">
@@ -335,7 +341,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
         </div>
 
         <?php if ($current_user_role === 'admin'): ?>
-            <form method="POST" style="margin:0;" class="guide-select-box">
+            <form method="POST" style="margin:0;" class="guide-select-box"><?= formTokenInput() ?>
                 <input type="hidden" name="update_event_details" value="1">
                 
                 <div style="display:flex; align-items:center; gap:6px;">
@@ -395,16 +401,16 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
     </div>
     <?php endif; ?>
 
-    <form id="formAddParticipant" method="POST"><input type="hidden" name="add_participant" value="1"></form>
+    <form id="formAddParticipant" method="POST"><?= formTokenInput() ?><input type="hidden" name="add_participant" value="1"></form>
     
     <?php foreach ($participants as $p): ?>
-        <form id="formEditP_<?= $p['id'] ?>" method="POST">
+        <form id="formEditP_<?= $p['id'] ?>" method="POST"><?= formTokenInput() ?>
             <input type="hidden" name="update_participant" value="1">
             <input type="hidden" name="participant_id" value="<?= $p['id'] ?>">
         </form>
     <?php endforeach; ?>
 
-    <form id="formAddExpense" method="POST" enctype="multipart/form-data"><input type="hidden" name="add_expense" value="1"></form>
+    <form id="formAddExpense" method="POST" enctype="multipart/form-data"><?= formTokenInput() ?><input type="hidden" name="add_expense" value="1"></form>
 
     <div class="section-title">👥 Участники экскурсии</div>
     <div class="scroll-hint">↔ Свайпайте таблицу влево-вправо</div>
@@ -457,14 +463,14 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         $p_places = participantSeats($p);
 
                         // ГЕНЕРИРУЕМ ТЕКСТ ДЛЯ WHATSAPP
-                        $wa_text = "Здравствуйте, " . explode(' ', $p_name)[0] . "! Жду вас завтра в " . ($event[$time_col] ?? 'назначенное время') . " на экскурсию.";
+                        $wa_text = "Здравствуйте, " . explode(' ', $p_name)[0] . "! Жду вас " . date('d.m.Y', strtotime($event[$date_col])) . " в " . ($event[$time_col] ?? 'назначенное время') . " на экскурсию.";
                         if (!empty($event['coordinates'])) {
                             $wa_text .= " Место встречи: " . $event['coordinates'];
                         }
                         $wa_link = "https://wa.me/{$clean_phone}?text=" . rawurlencode($wa_text);
                     ?>
                     <tr class="view_p_<?= $p_id ?>" style="<?= ($p['status'] ?? '') === 'Отмена' ? 'opacity: 0.5;' : '' ?>">
-                        <td><a href="client.php?phone=<?= urlencode($p['phone'] ?? '') ?>" class="client-link"><?= htmlspecialchars($p_name) ?></a></td>
+                        <td><a href="client.php?phone=<?= urlencode($p['phone'] ?? '') ?><?= htmlspecialchars($return_suffix, ENT_QUOTES) ?>" class="client-link"><?= htmlspecialchars($p_name) ?></a></td>
                         <td>
                             <div style="font-weight:600;"><?= htmlspecialchars($p['phone'] ?? '') ?></div>
                             <?php if (!empty($p['email'])): ?><span style="color:var(--text-muted); font-size:12px; font-weight:500;"><?= htmlspecialchars($p['email'] ?? '') ?></span><?php endif; ?>
@@ -484,7 +490,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         <td style="color: var(--text-muted); font-size: 13px;"><?= !empty($p['notes']) ? htmlspecialchars($p['notes']) : '—' ?></td>
                         <td style="text-align: right; white-space: nowrap;">
                             <div class="action-cell">
-                                <a href="<?= $wa_link ?>" target="_blank" class="btn-icon btn-wa" title="Написать в WhatsApp">
+                                <a href="<?= $wa_link ?>" target="_blank" onclick="return confirm(<?= htmlspecialchars(json_encode($wa_text, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES) ?>)" class="btn-icon btn-wa" title="Написать в WhatsApp">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.3 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg> 
                                     Написать
                                 </a>
@@ -492,9 +498,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                 </button>
                                 <?php if ($current_user_role === 'admin'): ?>
-                                <a href="?id=<?= $event_id ?>&del_participant=<?= $p_id ?>" class="btn-icon btn-del" onclick="return confirm('Удалить туриста?');" title="Удалить">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                                </a>
+                                <?= deleteControl('event.php?id=' . $event_id . $return_suffix, 'del_participant', (int)$p_id, 'Удалить туриста?') ?>
                                 <?php endif; ?>
                             </div>
                         </td>
@@ -593,9 +597,7 @@ $date_formatted = date('j', $ts) . ' ' . $months_ru[date('n', $ts)] . ' ' . date
                         </td>
                         <td style="text-align: right;">
                             <div class="action-cell">
-                                <a href="?id=<?= $event_id ?>&del_expense=<?= $ex['id'] ?>" class="btn-icon btn-del" onclick="return confirm('Удалить расход?');" title="Удалить">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                                </a>
+                                <?= deleteControl('event.php?id=' . $event_id . $return_suffix, 'del_expense', (int)$ex['id'], 'Удалить расход?') ?>
                             </div>
                         </td>
                     </tr>

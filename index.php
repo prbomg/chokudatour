@@ -3,6 +3,14 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'auth.php';
+require_once __DIR__ . '/homepage_helpers.php';
+require_once __DIR__ . '/request_helpers.php';
+$filter_error = '';
+try { $home_filters = homeFilters($_GET); } catch (InvalidArgumentException $e) { $home_filters = []; $filter_error = $e->getMessage(); }
+$home_url = homeUrl($home_filters);
+$return_url = homeReturnUrl($_POST['return_to'] ?? $home_url);
+$context_suffix = '&return_to=' . rawurlencode($home_url);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['ajax_load_past']) || isset($_POST['delete_event']) || isset($_POST['update_event']) || isset($_POST['ajax_add_event']) || isset($_POST['add_expense']))) requireFormToken();
 require_once __DIR__ . '/participant_seats.php';
 $participant_seats_sql = participantSeatsSql($pdo);
 
@@ -27,81 +35,73 @@ try { $pdo->exec("ALTER TABLE expenses ADD COLUMN receipt_path VARCHAR(255) DEFA
 try { $pdo->exec("ALTER TABLE events ADD COLUMN time VARCHAR(50) DEFAULT ''"); } catch(PDOException $e) {}
 try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN default_start_time VARCHAR(50) DEFAULT '10:00'"); } catch(PDOException $e) {}
 
-// --- УДАЛЕНИЕ ЭКСКУРСИИ ---
-if (isset($_GET['delete_event']) && $current_user_role === 'admin') {
-    $del_id = (int)$_GET['delete_event'];
-    $pdo->prepare("DELETE FROM expenses WHERE event_id = ?")->execute([$del_id]);
-    $pdo->prepare("DELETE FROM participants WHERE event_id = ?")->execute([$del_id]);
-    $pdo->prepare("DELETE FROM events WHERE id = ?")->execute([$del_id]);
-    header("Location: index.php"); exit;
-}
-
-// --- РЕДАКТИРОВАНИЕ ЭКСКУРСИИ ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_event']) && $current_user_role === 'admin') {
-    $e_id = (int)$_POST['event_id'];
-    $tour_date = $_POST['tour_date'];
-    $time = trim($_POST['time'] ?? '');
-    $tour_id = (int)$_POST['tour_id'];
-    $guide = $_POST['guide'];
-    $notes = trim($_POST['notes'] ?? '');
-
-    $pdo->prepare("UPDATE events SET tour_date=?, time=?, tour_id=?, guide=?, notes=? WHERE id=?")
-        ->execute([$tour_date, $time, $tour_id, $guide, $notes, $e_id]);
-    header("Location: index.php"); exit;
-}
-
-// --- БЫСТРОЕ ДОБАВЛЕНИЕ ЗАЯВКИ (AJAX) ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_add_event']) && $current_user_role === 'admin') {
-    ini_set('display_errors', 0); error_reporting(0); while (ob_get_level()) { ob_end_clean(); } 
+// Изменение выездов: проверки и запись выполняются до уведомления.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_event']) && $current_user_role === 'admin') {
+    $del_id = (int)$_POST['delete_event'];
+    $pdo->beginTransaction();
     try {
-        $tour_date = $_POST['tour_date']; 
-        $tour_id = $_POST['tour_id']; 
-        $guide = $_POST['guide']; 
-        $notes = trim($_POST['notes'] ?? '');
+        $pdo->prepare("DELETE FROM expenses WHERE event_id = ?")->execute([$del_id]);
+        $pdo->prepare("DELETE FROM participants WHERE event_id = ?")->execute([$del_id]);
+        $pdo->prepare("DELETE FROM events WHERE id = ?")->execute([$del_id]);
+        $pdo->commit();
+    } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
+    header("Location: " . $return_url); exit;
+}
 
-        // Отправка уведомления в Telegram
-        require_once 'telegram.php';
-        $tour_name = $pdo->query("SELECT name FROM tours_catalog WHERE id = " . (int)$tour_id)->fetchColumn();
-        $msg = "🆕 <b>Новая заявка создана вручную!</b>\n";
-        $msg .= "Тур: {$tour_name}\n";
-        $msg .= "Дата: {$tour_date} в {$time}\n";
-        $msg .= "Гид: {$guide}";
-        sendTelegramMessage($msg);
-        
-        if (empty($tour_date) || empty($tour_id) || empty($guide)) { echo json_encode(['status' => 'error', 'message' => 'Заполните обязательные поля']); exit; }
-
-        // УМНАЯ ПОДСТАНОВКА ВРЕМЕНИ
-        $stmt_t = $pdo->prepare("SELECT default_start_time FROM tours_catalog WHERE id = ?");
-        $stmt_t->execute([$tour_id]);
-        $time = $stmt_t->fetchColumn() ?: '10:00'; // Если пусто, ставим 10:00
-
-        $stmt = $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide, notes) VALUES (?, ?, ?, ?, ?)");
-        $stmt->execute([$tour_date, $time, $tour_id, $guide, $notes]);
-        echo json_encode(['status' => 'success']); 
-        exit; 
-    } catch (Exception $e) { echo json_encode(['status' => 'error', 'message' => $e->getMessage()]); exit; }
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_event']) || isset($_POST['ajax_add_event']))) {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        if ($current_user_role !== 'admin') throw new InvalidArgumentException('Доступ запрещён.');
+        $details = homeEventDetails($pdo, $_POST);
+        if (isset($_POST['update_event'])) {
+            requireEventAccess($pdo, (int)$_POST['event_id'], $current_user_role, $current_user_name);
+            $pdo->prepare("UPDATE events SET tour_date=?, time=?, tour_id=?, guide=?, notes=? WHERE id=?")
+                ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes'], (int)$_POST['event_id']]);
+            header('Location: ' . $return_url); exit;
+        }
+        $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide, notes) VALUES (?, ?, ?, ?, ?)")
+            ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes']]);
+        $notification_failed = false;
+        try {
+            require_once 'telegram.php';
+            $msg = "🆕 <b>Новая заявка создана вручную!</b>\nТур: " . htmlspecialchars($details['tour_name'], ENT_QUOTES)
+                . "\nДата: " . $details['date'] . " в " . $details['time'] . "\nГид: " . htmlspecialchars($details['guide'], ENT_QUOTES);
+            $notification_failed = sendTelegramMessage($msg) === false;
+        } catch (Throwable $e) { $notification_failed = true; }
+        echo json_encode(['status' => 'success', 'notification_failed' => $notification_failed]);
+    } catch (InvalidArgumentException $e) {
+        http_response_code(422);
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'Не удалось сохранить экскурсию. Повторите попытку.']);
+    }
+    exit;
 }
 
 // --- ДИНАМИЧЕСКАЯ ПОДГРУЗКА ПРОШЕДШИХ ТУРОВ (AJAX) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
     ini_set('display_errors', 0); error_reporting(0); while (ob_get_level()) { ob_end_clean(); } 
     try {
-        $offset = (int)$_POST['offset'];
+        $offset = max(0, (int)($_POST['offset'] ?? 0));
         $limit = 5;
-        
+        $past_filters = homeFilters($_POST);
+        $home_url = homeUrl($past_filters);
+        $context_suffix = '&return_to=' . rawurlencode($home_url);
         $params = [];
+        $where = homeFilterWhere($past_filters, $params, true);
+
         if ($current_user_role === 'admin') {
             // Единый подсчет мест для всех экранов
             $sql = "SELECT e.*, t.name AS tour_name,
                     COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
-                    COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price,
-                    (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', {$participant_seats_sql}) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
+                    COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price
                     FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
-                    WHERE e.tour_date < CURDATE() ORDER BY e.tour_date DESC LIMIT $limit OFFSET $offset";
+                    WHERE {$where} ORDER BY e.tour_date DESC, e.time DESC, e.id DESC LIMIT {$limit} OFFSET $offset";
         } else {
             $sql = "SELECT e.*, t.name AS tour_name, t.duration, t.coordinates 
                     FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
-                    WHERE e.guide = ? AND e.tour_date < CURDATE() ORDER BY e.tour_date DESC LIMIT $limit OFFSET $offset";
+                    WHERE {$where} AND e.guide = ? ORDER BY e.tour_date DESC, e.time DESC, e.id DESC LIMIT $limit OFFSET $offset";
             $params[] = $_SESSION['user_name'];
         }
 
@@ -109,6 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
         $stmt->execute($params);
         $past_events = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $past_events = array_reverse($past_events);
+        $event_participants = homeParticipants($pdo, $past_events);
         
         $html = '';
         $forms = '';
@@ -132,31 +133,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 $time_val = !empty($ev['time']) ? htmlspecialchars($ev['time']) : '';
                 $time_html = $time_val ? "<div style='color: var(--primary); font-size: 11px; font-weight: 700; margin-top: 4px;'>⏱ {$time_val}</div>" : "";
                 
-                $clients_html = '';
-                if (!empty($ev['clients_data'])) {
-                    $clients = explode('||', $ev['clients_data']);
-                    foreach ($clients as $c) {
-                        $parts = explode('::', $c);
-                        if (count($parts) >= 2) {
-                            $c_name = htmlspecialchars(trim($parts[0]));
-                            $c_phone = urlencode(trim($parts[1]));
-                            $c_seats = isset($parts[2]) ? (int)trim($parts[2]) : 1;
-                            $clients_html .= "<div class='tourist-chip'><a href='client.php?phone={$c_phone}' class='client-link'>👤 {$c_name}</a> <span class='seats-count'>{$c_seats} чел.</span></div>";
-                        }
-                    }
-                } else {
-                    $clients_html = "<a href='event.php?id={$ev['id']}' class='btn-add-tourist'>+ Добавить</a>";
-                }
+                $clients_html = homeClientsHtml($event_participants[$ev['id']] ?? [], (int)$ev['id'], $home_url);
 
                 $note_html = !empty($ev['notes']) 
                     ? "<div class='note-truncate' data-note='".htmlspecialchars($ev['notes'], ENT_QUOTES)."' onclick=\"showNoteModal(this.getAttribute('data-note'))\">" . htmlspecialchars($ev['notes']) . "</div>"
                     : "—";
 
-                $forms .= "<form id='formEditE_{$ev['id']}' method='POST'><input type='hidden' name='update_event' value='1'><input type='hidden' name='event_id' value='{$ev['id']}'></form>";
+                $forms .= "<form id='formEditE_{$ev['id']}' method='POST' action='" . htmlspecialchars($home_url, ENT_QUOTES) . "'>" . formTokenInput() . "<input type='hidden' name='update_event' value='1'><input type='hidden' name='event_id' value='{$ev['id']}'></form>";
                 
                 $html .= "<tr class='view_e_{$ev['id']} past-event-row'>
                     <td data-label='Дата' style='white-space: nowrap;'><strong style='color:#64748B;'>{$date_formatted}</strong>{$time_html}</td>
-                    <td data-label='Тур'><a href='event.php?id={$ev['id']}' class='link-tour' style='color:#475569;'>{$tour_name}</a></td>
+                    <td data-label='Тур'><a href='event.php?id={$ev['id']}{$context_suffix}' class='link-tour' style='color:#475569;'>{$tour_name}</a></td>
                     <td data-label='Гид'><span class='guide-tag' style='{$guide_style} opacity: 0.8;'>{$guide}</span></td>
                     <td data-label='Мест'><span class='seats-badge' style='background:#F1F5F9; color:#475569;'>{$ev['seats_count']}</span></td>
                     <td data-label='Доход' class='col-price' style='color: #059669; opacity: 0.8;'>{$income}</td>
@@ -164,15 +151,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                     <td data-label='Примечание' class='col-note'>{$note_html}</td>
                     <td data-label='Действия' style='text-align: right; white-space: nowrap;'>
                         <div class='action-cell'>
-                            <a href='event.php?id={$ev['id']}' class='btn-icon btn-view' title='Открыть'>
+                            <a href='event.php?id={$ev['id']}{$context_suffix}' class='btn-icon btn-view' title='Открыть'>
                                 <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg>
                             </a>
                             <button type='button' class='btn-icon btn-edit' onclick='toggleEditE({$ev['id']})' title='Редактировать'>
                                 <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7'></path><path d='M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'></path></svg>
                             </button>
-                            <a href='?delete_event={$ev['id']}' class='btn-icon btn-del' onclick=\"return confirm('Точно удалить экскурсию?');\" title='Удалить'>
-                                <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='3 6 5 6 21 6'></polyline><path d='M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'></path><line x1='10' y1='11' x2='10' y2='17'></line><line x1='14' y1='11' x2='14' y2='17'></line></svg>
-                            </a>
+                            " . deleteControl($home_url, 'delete_event', (int)$ev['id'], 'Удалить экскурсию вместе с её туристами и расходами?') . "
                         </div>
                     </td>
                 </tr>";
@@ -227,7 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 $html .= "</div>";
 
                 $html .= "<div class='g-card-actions'>";
-                $html .= "<a href='event.php?id={$ev['id']}' class='g-btn g-btn-route'><svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'></path><polyline points='14 2 14 8 20 8'></polyline><line x1='16' y1='13' x2='8' y2='13'></line><line x1='16' y1='17' x2='8' y2='17'></line><polyline points='10 9 9 9 8 9'></polyline></svg> Детали</a>";
+                $html .= "<a href='event.php?id={$ev['id']}{$context_suffix}' class='g-btn g-btn-route'><svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'></path><polyline points='14 2 14 8 20 8'></polyline><line x1='16' y1='13' x2='8' y2='13'></line><line x1='16' y1='17' x2='8' y2='17'></line><polyline points='10 9 9 9 8 9'></polyline></svg> Детали</a>";
                 $html .= "<button type='button' class='g-btn g-btn-expense' onclick=\"openExpenseModal({$ev['id']}, '" . htmlspecialchars($ev['tour_name'], ENT_QUOTES) . "')\"><svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2' ry='2'></rect><line x1='12' y1='8' x2='12' y2='16'></line><line x1='8' y1='12' x2='16' y2='12'></line></svg> Чек</button>";
                 $html .= "</div></div>";
             }
@@ -246,7 +231,9 @@ try {
 // --- ДОБАВЛЕНИЕ РАСХОДА (ДЛЯ ГИДОВ) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_expense'])) {
     $event_id = (int)$_POST['event_id'];
-    $amount = (int)$_POST['amount'];
+    requireEventAccess($pdo, $event_id, $current_user_role, $current_user_name);
+    $amount = (int)($_POST['amount'] ?? 0);
+    if ($amount < 1) { http_response_code(422); exit('Укажите положительную сумму расхода.'); }
     $category = trim($_POST['category'] ?? 'Прочее');
     $description = trim($_POST['description'] ?? '');
     $receipt_path = '';
@@ -261,10 +248,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_expense'])) {
     }
 
     $pdo->prepare("INSERT INTO expenses (event_id, amount, category, description, receipt_path) VALUES (?, ?, ?, ?, ?)")->execute([$event_id, $amount, $category, $description, $receipt_path]);
-    header("Location: index.php?msg=expense_added"); exit;
+    header("Location: " . $return_url . (strpos($return_url, "?") === false ? "?" : "&") . "msg=expense_added"); exit;
 }
 
-$show_load_past = empty($_GET['date_from']) && empty($_GET['date_to']);
+$show_load_past = !$filter_error && empty($home_filters['date_from']) && empty($home_filters['date_to']);
 
 // --- ПОДГОТОВКА ДАННЫХ ---
 if ($current_user_role === 'admin') {
@@ -275,31 +262,17 @@ if ($current_user_role === 'admin') {
     $sql = "SELECT e.*, t.name AS tour_name,
             COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
             COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price,
-            COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0) as total_expenses,
-            (SELECT GROUP_CONCAT(CONCAT(COALESCE(client_name,''), '::', COALESCE(phone,''), '::', {$participant_seats_sql}) SEPARATOR '||') FROM participants WHERE event_id = e.id AND status != 'Отмена') as clients_data
+            COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0) as total_expenses
             FROM events e JOIN tours_catalog t ON e.tour_id = t.id WHERE 1=1";
     $params = [];
 
-    if (!empty($_GET['date_from'])) { $sql .= " AND e.tour_date >= ?"; $params[] = $_GET['date_from']; } 
-    else { $sql .= " AND e.tour_date >= CURDATE()"; }
-
-    if (!empty($_GET['date_to'])) { $sql .= " AND e.tour_date <= ?"; $params[] = $_GET['date_to']; }
-    if (!empty($_GET['tour_filter'])) { $sql .= " AND e.tour_id = ?"; $params[] = $_GET['tour_filter']; }
-    if (!empty($_GET['guide_filter'])) { $sql .= " AND e.guide = ?"; $params[] = $_GET['guide_filter']; }
-
-    $sort_col = $_GET['sort'] ?? 'tour_date';
-    $sort_dir = isset($_GET['dir']) && $_GET['dir'] === 'desc' ? 'DESC' : 'ASC'; 
-    $allowed_sorts = ['tour_date', 'tour_name', 'guide'];
-    if (!in_array($sort_col, $allowed_sorts)) { $sort_col = 'tour_date'; }
-    
-    // Сортировка времени вместе с датой
-    if ($sort_col === 'tour_date') {
-        $sql .= " ORDER BY tour_date $sort_dir, time ASC";
-    } else {
-        $sql .= " ORDER BY $sort_col $sort_dir";
-    }
+    $sql .= ' AND ' . ($filter_error ? '1=0' : homeFilterWhere($home_filters, $params));
+    $sort_col = $home_filters['sort'] ?? 'tour_date';
+    $sort_dir = ($home_filters['dir'] ?? 'asc') === 'desc' ? 'DESC' : 'ASC';
+    $sql .= $sort_col === 'tour_date' ? " ORDER BY tour_date $sort_dir, time ASC, e.id ASC" : " ORDER BY $sort_col $sort_dir, tour_date ASC, time ASC, e.id ASC";
 
     $stmt = $pdo->prepare($sql); $stmt->execute($params); $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $event_participants = homeParticipants($pdo, $events);
 
     $dash_tours = count($events); $dash_clients = 0; $dash_income = 0; $dash_expenses = 0;
     foreach ($events as $ev) {
@@ -577,39 +550,48 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
     <?php include 'navbar.php'; ?>
     <div class="header-box"><h2>Список экскурсий</h2></div>
     
+    <?php if ($filter_error): ?><p role="alert" style="color:#B91C1C;"><?= htmlspecialchars($filter_error) ?></p><?php endif; ?>
+    <p id="summaryScope" style="color:var(--text-muted); font-size:13px;">
+        Итоги выбранных выездов: с <?= htmlspecialchars($home_filters['date_from'] ?? date('Y-m-d')) ?>
+        <?= isset($home_filters['date_to']) ? 'по ' . htmlspecialchars($home_filters['date_to']) : 'и далее' ?>.
+        Подгруженная история в эти итоги не входит. Для расчёта за прошлый период выберите даты.
+    </p>
     <div class="dash-grid">
         <div class="dash-card profit"><div class="dash-title">Чистая прибыль</div><div class="dash-val val-green"><?= number_format($dash_profit, 0, '', ' ') ?> ₽</div></div>
         <div class="dash-card"><div class="dash-title">Всего дохода</div><div class="dash-val"><?= number_format($dash_income, 0, '', ' ') ?> ₽</div></div>
         <div class="dash-card"><div class="dash-title">Всего расходов</div><div class="dash-val val-red"><?= number_format($dash_expenses, 0, '', ' ') ?> ₽</div></div>
-        <div class="dash-card"><div class="dash-title">Заявок (Мест)</div><div class="dash-val"><?= $dash_tours ?> <span style="font-size: 14px; color: var(--text-muted); font-weight:600;">(<?= $dash_clients ?> чел.)</span></div></div>
+        <div class="dash-card"><div class="dash-title">Выездов (мест)</div><div class="dash-val"><?= $dash_tours ?> <span style="font-size: 14px; color: var(--text-muted); font-weight:600;">(<?= $dash_clients ?> чел.)</span></div></div>
     </div>
 
     <div class="quick-filters">
-        <a href="?date_from=<?= $today ?>&date_to=<?= $today ?>" class="pill">Сегодня</a>
-        <a href="?date_from=<?= $tomorrow ?>&date_to=<?= $tomorrow ?>" class="pill">Завтра</a>
-        <a href="?date_from=<?= $today ?>&date_to=<?= $current_week_end ?>" class="pill">Текущая неделя</a>
-        <a href="?date_from=<?= $next_week_start ?>&date_to=<?= $next_week_end ?>" class="pill">Следующая неделя</a>
-        <a href="?guide_filter=Не назначен" class="pill">Без гида</a>
+        <a href="<?= htmlspecialchars(homeUrl($home_filters, ['date_from' => $today, 'date_to' => $today]), ENT_QUOTES) ?>" class="pill">Сегодня</a>
+        <a href="<?= htmlspecialchars(homeUrl($home_filters, ['date_from' => $tomorrow, 'date_to' => $tomorrow]), ENT_QUOTES) ?>" class="pill">Завтра</a>
+        <a href="<?= htmlspecialchars(homeUrl($home_filters, ['date_from' => $today, 'date_to' => $current_week_end]), ENT_QUOTES) ?>" class="pill">До конца недели</a>
+        <a href="<?= htmlspecialchars(homeUrl($home_filters, ['date_from' => $next_week_start, 'date_to' => $next_week_end]), ENT_QUOTES) ?>" class="pill">Следующая неделя</a>
+        <a href="<?= htmlspecialchars(homeUrl($home_filters, ['guide_filter' => 'Не назначен']), ENT_QUOTES) ?>" class="pill">Без гида</a>
         <a href="index.php" class="pill pill-reset">Сбросить всё</a>
     </div>
 
     <form class="filters" method="GET">
-        <div class="filter-group"><label>Дата от</label><input type="date" name="date_from" value="<?= htmlspecialchars($_GET['date_from'] ?? '') ?>"></div>
-        <div class="filter-group"><label>Дата до</label><input type="date" name="date_to" value="<?= htmlspecialchars($_GET['date_to'] ?? '') ?>"></div>
-        <div class="filter-group"><label>Тур</label><select name="tour_filter"><option value="">Все туры</option><?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>" <?= (($_GET['tour_filter'] ?? '') == $t['id']) ? 'selected' : '' ?>><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?></select></div>
-        <div class="filter-group"><label>Гид</label><select name="guide_filter"><option value="">Все гиды</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>" <?= (($_GET['guide_filter'] ?? '') === $g['name']) ? 'selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></div>
+        <div class="filter-group"><label>Дата от</label><input type="date" name="date_from" value="<?= htmlspecialchars($home_filters['date_from'] ?? '') ?>"></div>
+        <div class="filter-group"><label>Дата до</label><input type="date" name="date_to" value="<?= htmlspecialchars($home_filters['date_to'] ?? '') ?>"></div>
+        <div class="filter-group"><label>Тур</label><select name="tour_filter"><option value="">Все туры</option><?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>" <?= (($home_filters['tour_filter'] ?? '') == $t['id']) ? 'selected' : '' ?>><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?></select></div>
+        <div class="filter-group"><label>Гид</label><select name="guide_filter"><option value="">Все гиды</option><option value="Не назначен" <?= ($home_filters['guide_filter'] ?? '') === 'Не назначен' ? 'selected' : '' ?>>Не назначен</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>" <?= (($home_filters['guide_filter'] ?? '') === $g['name']) ? 'selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></div>
+        <div class="filter-group"><label>Сортировка</label><select name="sort"><?php foreach (['tour_date'=>'Дата','tour_name'=>'Название тура','guide'=>'Гид'] as $key=>$label): ?><option value="<?= $key ?>" <?= $sort_col === $key ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select></div>
+        <div class="filter-group"><label>Порядок</label><select name="dir"><option value="asc" <?= $sort_dir === 'ASC' ? 'selected' : '' ?>>По возрастанию</option><option value="desc" <?= $sort_dir === 'DESC' ? 'selected' : '' ?>>По убыванию</option></select></div>
         <button type="submit" class="btn-filter">Применить</button>
     </form>
 
     <?php if ($show_load_past): ?>
         <div id="loadPastContainer" style="margin-bottom: 20px;">
+            <p id="pastHistoryLabel" hidden style="font-size:13px; color:var(--text-muted);">Подгруженная история — по дате, отдельно от итогов основной выборки.</p>
             <button type="button" id="loadPastBtn" class="btn-load-more">⬆ Прошедшие туры</button>
         </div>
     <?php endif; ?>
 
-    <form id="ajaxAddEventForm" method="POST"><input type="hidden" name="ajax_add_event" value="1"></form>
+    <form id="ajaxAddEventForm" method="POST" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>"><?= formTokenInput() ?><input type="hidden" name="ajax_add_event" value="1"></form>
     <?php foreach ($events as $ev): ?>
-        <form id="formEditE_<?= $ev['id'] ?>" method="POST">
+        <form id="formEditE_<?= $ev['id'] ?>" method="POST" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>"><?= formTokenInput() ?>
             <input type="hidden" name="update_event" value="1">
             <input type="hidden" name="event_id" value="<?= $ev['id'] ?>">
         </form>
@@ -619,9 +601,9 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         <table>
             <thead>
                 <tr>
-                    <th class="sortable" data-sort="tour_date" data-dir="<?= $sort_col === 'tour_date' && $sort_dir === 'ASC' ? 'desc' : 'asc' ?>">Дата <?= $sort_col === 'tour_date' ? ($sort_dir === 'ASC' ? '↑' : '↓') : '' ?></th>
-                    <th class="sortable" data-sort="tour_name" data-dir="<?= $sort_col === 'tour_name' && $sort_dir === 'ASC' ? 'desc' : 'asc' ?>">Название тура <?= $sort_col === 'tour_name' ? ($sort_dir === 'ASC' ? '↑' : '↓') : '' ?></th>
-                    <th class="sortable" data-sort="guide" data-dir="<?= $sort_col === 'guide' && $sort_dir === 'ASC' ? 'desc' : 'asc' ?>">Гид <?= $sort_col === 'guide' ? ($sort_dir === 'ASC' ? '↑' : '↓') : '' ?></th>
+                    <th class="sortable" data-sort="tour_date" data-dir="<?= $sort_col === 'tour_date' && $sort_dir === 'ASC' ? 'desc' : 'asc' ?>"><a href="<?= htmlspecialchars(homeUrl($home_filters, ['sort'=>'tour_date', 'dir'=>($sort_col === 'tour_date' && $sort_dir === 'ASC') ? 'desc' : 'asc']), ENT_QUOTES) ?>" style="color:inherit; text-decoration:none;">Дата <?= $sort_col === 'tour_date' ? ($sort_dir === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                    <th class="sortable" data-sort="tour_name" data-dir="<?= $sort_col === 'tour_name' && $sort_dir === 'ASC' ? 'desc' : 'asc' ?>"><a href="<?= htmlspecialchars(homeUrl($home_filters, ['sort'=>'tour_name', 'dir'=>($sort_col === 'tour_name' && $sort_dir === 'ASC') ? 'desc' : 'asc']), ENT_QUOTES) ?>" style="color:inherit; text-decoration:none;">Название тура <?= $sort_col === 'tour_name' ? ($sort_dir === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                    <th class="sortable" data-sort="guide" data-dir="<?= $sort_col === 'guide' && $sort_dir === 'ASC' ? 'desc' : 'asc' ?>"><a href="<?= htmlspecialchars(homeUrl($home_filters, ['sort'=>'guide', 'dir'=>($sort_col === 'guide' && $sort_dir === 'ASC') ? 'desc' : 'asc']), ENT_QUOTES) ?>" style="color:inherit; text-decoration:none;">Гид <?= $sort_col === 'guide' ? ($sort_dir === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                     <th>Мест</th>
                     <th class="col-price">Доход</th>
                     <th>Туристы</th>
@@ -642,7 +624,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                             <?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?>
                         </select>
                     </td>
-                    <td data-label="Гид"><select form="ajaxAddEventForm" name="guide" class="t-input" required title="Назначить гида"><option value="" disabled selected>Гид...</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></td>
+                    <td data-label="Гид"><select form="ajaxAddEventForm" name="guide" class="t-input" required title="Назначить гида"><option value="Не назначен">Не назначен</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></td>
                     <td data-label="Примечание" colspan="3"><input form="ajaxAddEventForm" type="text" name="notes" class="t-input" placeholder="Примечание (опционально)..."></td>
                     <td data-label="Действие" colspan="2"><button form="ajaxAddEventForm" type="submit" class="btn-add-submit" id="submitAddBtn">Сохранить тур</button></td>
                 </tr>
@@ -670,28 +652,14 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                             <div style="color: var(--primary); font-size: 11px; font-weight: 700; margin-top: 4px;">⏱ <?= htmlspecialchars($ev['time']) ?></div>
                         <?php endif; ?>
                     </td>
-                    <td data-label="Тур"><a href="event.php?id=<?= $ev['id'] ?>" class="link-tour"><?= htmlspecialchars($ev['tour_name']) ?></a></td>
+                    <td data-label="Тур"><a href="event.php?id=<?= $ev['id'] ?><?= htmlspecialchars($context_suffix, ENT_QUOTES) ?>" class="link-tour"><?= htmlspecialchars($ev['tour_name']) ?></a></td>
                     <td data-label="Гид"><span class="guide-tag" style="<?= getGuideColorStyle($ev['guide']) ?>"><?= htmlspecialchars($ev['guide'] ?: 'Не назначен') ?></span></td>
                     <td data-label="Мест"><span class="seats-badge"><?= $ev['seats_count'] ?></span></td>
                     <td data-label="Доход" class="col-price" style="color: #10B981;"><?= number_format($ev['total_price'], 0, '', ' ') ?> ₽</td>
                     <td data-label="Туристы">
                         <?php 
-                        $clients_html = '';
-                        if (!empty($ev['clients_data'])) {
-                            $clients = explode('||', $ev['clients_data']);
-                            foreach ($clients as $c) {
-                                $parts = explode('::', $c);
-                                if (count($parts) >= 2) {
-                                    $c_name = htmlspecialchars(trim($parts[0]));
-                                    $c_phone = urlencode(trim($parts[1]));
-                                    $c_seats = isset($parts[2]) ? (int)trim($parts[2]) : 1;
-                                    $clients_html .= "<div class='tourist-chip'><a href='client.php?phone={$c_phone}' class='client-link'>👤 {$c_name}</a> <span class='seats-count'>{$c_seats} чел.</span></div>";
-                                }
-                            }
-                            echo $clients_html;
-                        } else {
-                            echo "<a href='event.php?id={$ev['id']}' class='btn-add-tourist'>+ Добавить</a>";
-                        }
+                        $clients_html = homeClientsHtml($event_participants[$ev['id']] ?? [], (int)$ev['id'], $home_url);
+                        echo $clients_html;
                         ?>
                     </td>
                     <td data-label="Примечание" class="col-note">
@@ -703,15 +671,13 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                     </td>
                     <td data-label="Действия" style="text-align: right; white-space: nowrap;">
                         <div class="action-cell">
-                            <a href="event.php?id=<?= $ev['id'] ?>" class="btn-icon btn-view" title="Открыть">
+                            <a href="event.php?id=<?= $ev['id'] ?><?= htmlspecialchars($context_suffix, ENT_QUOTES) ?>" class="btn-icon btn-view" title="Открыть">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                             </a>
                             <button type="button" class="btn-icon btn-edit" onclick="toggleEditE(<?= $ev['id'] ?>)" title="Редактировать">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                             </button>
-                            <a href="?delete_event=<?= $ev['id'] ?>" class="btn-icon btn-del" onclick="return confirm('Точно удалить экскурсию?');" title="Удалить">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                            </a>
+                            <?= deleteControl($home_url, 'delete_event', (int)$ev['id'], 'Удалить экскурсию вместе с её туристами и расходами?') ?>
                         </div>
                     </td>
                 </tr>
@@ -769,6 +735,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 
     <?php if ($show_load_past): ?>
         <div id="loadPastContainer" style="margin-bottom: 20px;">
+            <p id="pastHistoryLabel" hidden style="font-size:13px; color:var(--text-muted);">Подгруженная история — по дате, отдельно от итогов основной выборки.</p>
             <button type="button" id="loadPastBtn" class="btn-load-more">⬆ Прошедшие туры</button>
         </div>
     <?php endif; ?>
@@ -833,7 +800,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
             </div>
 
             <div class="g-card-actions">
-                <a href="event.php?id=<?= $ev['id'] ?>" class="g-btn g-btn-route">
+                <a href="event.php?id=<?= $ev['id'] ?><?= htmlspecialchars($context_suffix, ENT_QUOTES) ?>" class="g-btn g-btn-route">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Детали тура
                 </a>
                 <button type="button" class="g-btn g-btn-expense" onclick="openExpenseModal(<?= $ev['id'] ?>, '<?= htmlspecialchars($ev['tour_name'], ENT_QUOTES) ?>')">
@@ -859,7 +826,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
     <div class="modal-content">
         <h3>Внести чек / расход</h3>
         <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px; font-weight:600;" id="expenseTourName"></p>
-        <form method="POST" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>"><?= formTokenInput() ?>
             <input type="hidden" name="add_expense" value="1">
             <input type="hidden" name="event_id" id="expenseEventId">
             <div class="form-group"><label>Сумма (₽) *</label><input type="number" name="amount" min="1" class="t-input" required placeholder="Например: 1500"></div>
@@ -873,137 +840,14 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 </div>
 
 <script>
-    // Подстановка дефолтного времени
-    const tourTimes = {
-        <?php if(isset($tours)) { foreach($tours as $t) echo $t['id'] . ": '" . addslashes($t['default_start_time'] ?? '') . "',\n"; } ?>
-    };
-
-    function updateDefaultTime() {
-        const tId = document.getElementById('add_tour_id').value;
-        const timeInp = document.getElementById('add_time');
-        if (tourTimes[tId] && !timeInp.dataset.manual) {
-            timeInp.value = tourTimes[tId];
-        }
-    }
-
-    // Показ Toast уведомления
-    function showToast(message, type = 'success') {
-        const container = document.getElementById('toast-container');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        
-        const icon = type === 'success' 
-            ? `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`
-            : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
-            
-        toast.innerHTML = icon + `<span>${message}</span>`;
-        container.appendChild(toast);
-        
-        setTimeout(() => toast.classList.add('show'), 10);
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 400);
-        }, 3000);
-    }
-
-    // Закрытие модалок по фону
-    document.querySelectorAll('.modal-overlay').forEach(modal => {
-        modal.addEventListener('mousedown', function(e) {
-            if (e.target === this) this.style.display = 'none';
-        });
-    });
-
-    function showNoteModal(text) {
-        document.getElementById('noteModalText').textContent = text;
-        document.getElementById('noteModal').style.display = 'flex';
-    }
-
-    function toggleEditE(id) {
-        document.querySelectorAll('.view_e_' + id).forEach(el => el.style.display = 'none');
-        document.querySelectorAll('.edit_e_' + id).forEach(el => el.style.display = '');
-    }
-    function cancelEditE(id) {
-        document.querySelectorAll('.edit_e_' + id).forEach(el => el.style.display = 'none');
-        document.querySelectorAll('.view_e_' + id).forEach(el => el.style.display = '');
-    }
-
-    function openExpenseModal(eventId, tourName) {
-        document.getElementById('expenseEventId').value = eventId;
-        document.getElementById('expenseTourName').textContent = tourName;
-        document.getElementById('expenseModal').style.display = 'flex';
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        
-        const savedToast = sessionStorage.getItem('toast_msg');
-        if (savedToast) {
-            showToast(savedToast, sessionStorage.getItem('toast_type') || 'success');
-            sessionStorage.removeItem('toast_msg');
-            sessionStorage.removeItem('toast_type');
-        }
-
-        const addEventForm = document.getElementById('ajaxAddEventForm');
-        if (addEventForm) {
-            addEventForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                const submitBtn = document.getElementById('submitAddBtn');
-                submitBtn.innerHTML = '⏳ Сохранение...'; submitBtn.disabled = true;
-
-                fetch('index.php', { method: 'POST', body: new FormData(this), headers: { 'X-Requested-With': 'XMLHttpRequest' }})
-                .then(res => res.json())
-                .then(data => {
-                    if(data.status === 'success') {
-                        sessionStorage.setItem('toast_msg', 'Экскурсия успешно добавлена!');
-                        sessionStorage.setItem('toast_type', 'success');
-                        window.location.reload(); 
-                    } else {
-                        showToast(data.message || "Ошибка сохранения", "error");
-                        submitBtn.innerHTML = 'Сохранить тур'; submitBtn.disabled = false;
-                    }
-                })
-                .catch(err => { 
-                    showToast("Ошибка соединения с сервером", "error"); 
-                    submitBtn.innerHTML = 'Сохранить тур'; submitBtn.disabled = false; 
-                });
-            });
-        }
-
-        let pastOffset = 0;
-        const loadPastBtn = document.getElementById('loadPastBtn');
-        if (loadPastBtn) {
-            loadPastBtn.addEventListener('click', function() {
-                const btn = this; const originalText = btn.innerHTML;
-                btn.innerHTML = '⏳ Загрузка...'; btn.disabled = true;
-
-                const formData = new FormData();
-                formData.append('ajax_load_past', '1');
-                formData.append('offset', pastOffset);
-
-                fetch('index.php', { method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' }})
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        if (data.count > 0) {
-                            const addRow = document.getElementById('add_event_row');
-                            if (addRow) addRow.insertAdjacentHTML('afterend', data.html);
-                            
-                            const gContainer = document.getElementById('guideCardsContainer');
-                            if (gContainer) gContainer.insertAdjacentHTML('afterbegin', data.html);
-                            
-                            const fContainer = document.getElementById('ajaxFormsContainer');
-                            if (fContainer && data.forms) fContainer.insertAdjacentHTML('beforeend', data.forms);
-
-                            pastOffset += 5;
-                            showToast('Туры успешно подгружены', 'success');
-                        }
-                        if (data.count < 5) btn.parentElement.style.display = 'none';
-                    }
-                })
-                .finally(() => { btn.innerHTML = originalText; btn.disabled = false; });
-            });
-        }
-    });
+window.homePageConfig = <?= json_encode([
+    'filters' => $home_filters,
+    'url' => $home_url,
+    'user' => ($_SESSION['user_id'] ?? '') . ':' . $current_user_role . ':' . $current_user_name,
+    'tourTimes' => isset($tours) ? array_column($tours, 'default_start_time', 'id') : [],
+], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) ?>;
 </script>
+<script src="assets/homepage.js"></script>
 
 <?php if (isset($_GET['msg']) && $_GET['msg'] === 'expense_added'): ?>
     <script> document.addEventListener('DOMContentLoaded', () => showToast('Чек отправлен в бухгалтерию!', 'success')); </script>

@@ -348,7 +348,7 @@ if (!is_array($faq_items)) {
                     </div>
 
                     <div class="form-group">
-                        <label>Подробное описание маршрута (внутреннее)</label>
+                        <label>Описание маршрута для туристов (публикуется на сайте)</label>
                         <textarea name="description" id="inp_desc" class="t-input" rows="3" style="resize:vertical;"><?= htmlspecialchars($tour['description'] ?? '') ?></textarea>
                     </div>
                     

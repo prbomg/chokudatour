@@ -5,9 +5,11 @@ ini_set('display_errors', 0);
 require_once 'db.php';
 require_once __DIR__ . '/participant_seats.php';
 require_once 'telegram.php';
+require_once __DIR__ . '/public_booking.php';
+$booking_token = preg_match('/^[a-f0-9]{64}$/D', (string)($_POST['booking_token'] ?? '')) ? $_POST['booking_token'] : bin2hex(random_bytes(32));
 
 $status_msg = ''; $status_class = ''; $form_submitted = false;
-$preset_tour_id = isset($_GET['tour_id']) ? (int)$_GET['tour_id'] : 0;
+$preset_tour_id = (int)($_POST['tour_id'] ?? $_GET['tour_id'] ?? 0);
 
 // --- ПОДТЯГИВАЕМ ЦЕНЫ ДЛЯ ИСТОЧНИКА "САЙТ" ---
 $stmt_src = $pdo->prepare("SELECT id FROM booking_sources WHERE name = 'Сайт' LIMIT 1");
@@ -36,81 +38,22 @@ foreach ($tours_raw as $t) {
 // ----------------------------------------------
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_booking'])) {
-    $tour_id = (int)($_POST['tour_id'] ?? 0);
-    $booking_date = $_POST['booking_date'] ?? '';
-    $client_name = trim($_POST['client_name'] ?? '');
-    $phone = trim($_POST['phone'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $seats = max(1, (int)($_POST['seats'] ?? 1));
-    $seat_binding = participantSeatBinding($pdo, $seats);
-    $notes = trim($_POST['notes'] ?? '');
-
-    if ($tour_id > 0 && !empty($booking_date) && !empty($client_name) && !empty($phone)) {
-        
-        // РАСЧЕТ ИТОГОВОЙ СТОИМОСТИ НА СЕРВЕРЕ (С учетом типа тура)
-        $tour_info = $tours_data_js[$tour_id] ?? null;
-        $total_price = 0;
-        
-        if ($tour_info) {
-            if ($tour_info['type'] === 'Групповая') {
-                $total_price = $tour_info['price'] * $seats; // Умножаем на людей
-            } else {
-                $total_price = $tour_info['price']; // Цена за всю группу (индивидуально)
-            }
+    try {
+        $booking = createPublicBooking($pdo, $_POST, (int)$source_id);
+        $form_submitted = true; $status_class = 'success';
+        $status_msg = $booking['duplicate'] ? 'Эта заявка уже принята. Повторная запись не создана.' : 'Заявка успешно принята! Наш менеджер свяжется с вами для подтверждения.';
+        if (!$booking['duplicate']) {
+            $msg = "🌐 <b>НОВАЯ БРОНЬ С САЙТА!</b>\nТур: " . htmlspecialchars($booking['tour'], ENT_QUOTES)
+                . "\nДата: " . $booking['date'] . "\nКлиент: " . htmlspecialchars($booking['name'], ENT_QUOTES) . " (" . $booking['seats'] . " чел.)"
+                . "\nТелефон: " . htmlspecialchars($booking['phone'], ENT_QUOTES) . "\nСтоимость: " . $booking['price'] . " ₽\nГид: " . htmlspecialchars($booking['guide'], ENT_QUOTES);
+            if (!empty($_POST['notes'])) $msg .= "\nПожелания: " . htmlspecialchars($_POST['notes'], ENT_QUOTES);
+            try { sendTelegramMessage($msg); } catch (Throwable $e) { /* Booking is already committed. */ }
         }
-
-        $all_guides = $pdo->query("SELECT name, allowed_tours FROM guides")->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Кто занят в этот день на других экскурсиях
-        $stmt_busy = $pdo->prepare("SELECT guide FROM events WHERE tour_date = ?");
-        $stmt_busy->execute([$booking_date]);
-        $busy_guides = $stmt_busy->fetchAll(PDO::FETCH_COLUMN);
-
-        // Кто в отгуле в этот день
-        $stmt_off = $pdo->prepare("SELECT guide_name FROM guide_timeoffs WHERE date_off = ?");
-        $stmt_off->execute([$booking_date]);
-        $off_guides = $stmt_off->fetchAll(PDO::FETCH_COLUMN);
-
-        $assigned_guide = 'Не назначен (Нет свободных)';
-        foreach ($all_guides as $g) {
-            $g_tours = $g['allowed_tours'] === 'all' ? 'all' : explode(',', $g['allowed_tours']);
-            if ($g_tours === 'all' || in_array((string)$tour_id, $g_tours)) {
-                // Гид подходит для тура. Проверяем, не занят ли и не в отгуле ли он
-                if (!in_array($g['name'], $busy_guides) && !in_array($g['name'], $off_guides)) {
-                    $assigned_guide = $g['name'];
-                    break;
-                }
-            }
-        }
-
-        // Проверяем, может в этот день УЖЕ ЕСТЬ заведенная групповая экскурсия?
-        // (Чтобы не создавать дубликаты событий для групповых туров)
-        $stmt_check_exist = $pdo->prepare("SELECT id FROM events WHERE tour_id = ? AND tour_date = ? LIMIT 1");
-        $stmt_check_exist->execute([$tour_id, $booking_date]);
-        $existing_event_id = $stmt_check_exist->fetchColumn();
-
-        if ($existing_event_id && $tour_info && $tour_info['type'] === 'Групповая') {
-            // Если тур групповой и экскурсия уже заведена на этот день - дозаписываем в неё
-            $event_id = $existing_event_id;
-        } else {
-            // Если тур индивидуальный или на этот день еще нет такой экскурсии - создаем новую
-            $stmt_ins = $pdo->prepare("INSERT INTO events (tour_date, tour_id, guide, notes) VALUES (?, ?, ?, 'Заявка с сайта')");
-            $stmt_ins->execute([$booking_date, $tour_id, $assigned_guide]);
-            $event_id = $pdo->lastInsertId();
-        }
-
-        // Записываем участника
-        $sql = "INSERT INTO participants (event_id, client_name, {$seat_binding['columns']}, price, phone, email, source, status, notes) VALUES (?, ?, {$seat_binding['placeholders']}, ?, ?, ?, 'Сайт', 'Бронь', ?)";
-        if ($pdo->prepare($sql)->execute(array_merge([$event_id, $client_name], $seat_binding['values'], [$total_price, $phone, $email, $notes]))) {
-            $status_msg = "Заявка успешно принята! Наш менеджер свяжется с вами для подтверждения.";
-            $status_class = "success"; $form_submitted = true;
-
-            $tour_title = $pdo->query("SELECT COALESCE(public_name, name) FROM tours_catalog WHERE id = $tour_id")->fetchColumn();
-            $msg = "🌐 <b>НОВАЯ БРОНЬ С САЙТА!</b>\n\n🗺 <b>Тур:</b> $tour_title\n🗓 <b>Дата:</b> " . date('d.m.Y', strtotime($booking_date)) . "\n👤 <b>Клиент:</b> $client_name ($seats чел.)\n📞 <b>Телефон:</b> $phone\n💰 <b>Стоимость:</b> " . number_format($total_price, 0, '', ' ') . " ₽\n👷‍♂️ <b>Гид:</b> $assigned_guide\n";
-            if ($notes) $msg .= "📝 <b>Пожелания:</b> $notes";
-            @sendTelegramMessage($msg);
-        } else { $status_msg = "Ошибка сохранения заявки."; $status_class = "error"; }
-    } else { $status_msg = "Заполните все поля и выберите дату."; $status_class = "error"; }
+    } catch (InvalidArgumentException $e) {
+        $status_msg = $e->getMessage(); $status_class = 'error';
+    } catch (Throwable $e) {
+        $status_msg = 'Не удалось сохранить заявку. Повторите попытку.'; $status_class = 'error';
+    }
 }
 
 $wd_val = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'working_days'")->fetchColumn();
@@ -128,7 +71,7 @@ foreach($guides_data as $g) {
     $js_guides[] = ['name' => $g['name'], 'tours' => $g['allowed_tours'] === 'all' ? 'all' : explode(',', $g['allowed_tours'])];
 }
 
-$rules_raw = $pdo->query("SELECT * FROM blocked_dates WHERE block_date >= CURDATE()")->fetchAll();
+$rules_raw = $pdo->query("SELECT * FROM blocked_dates WHERE block_date >= CURDATE() ORDER BY id")->fetchAll();
 $rules_map = [];
 foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['action_type'], 'tours' => $r['tours'] === 'all' ? 'all' : explode(',', $r['tours'])]; }
 ?>
@@ -193,7 +136,8 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
 
         <form method="POST" action="widget.php<?= $preset_tour_id ? '?tour_id='.$preset_tour_id : '' ?>" id="bookingForm">
             <input type="hidden" name="create_booking" value="1">
-            <input type="hidden" name="booking_date" id="booking_date_input" required>
+            <input type="hidden" name="booking_token" value="<?= htmlspecialchars($booking_token, ENT_QUOTES) ?>">
+            <input type="hidden" name="booking_date" id="booking_date_input" value="<?= htmlspecialchars($_POST['booking_date'] ?? '', ENT_QUOTES) ?>" required>
 
             <label>1. Выберите тур *</label>
             <select name="tour_id" id="tourSelect" required>
@@ -225,17 +169,17 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
             </div>
 
             <div class="row">
-                <div><label>Имя *</label><input type="text" name="client_name" required placeholder="Иван Иванов"></div>
-                <div><label>Телефон *</label><input type="tel" name="phone" required placeholder="+7 (999) 000-00-00"></div>
+                <div><label>Имя *</label><input type="text" name="client_name" value="<?= htmlspecialchars($_POST['client_name'] ?? '', ENT_QUOTES) ?>" required placeholder="Иван Иванов"></div>
+                <div><label>Телефон *</label><input type="tel" name="phone" value="<?= htmlspecialchars($_POST['phone'] ?? '', ENT_QUOTES) ?>" required placeholder="+7 (999) 000-00-00"></div>
             </div>
 
             <div class="row">
-                <div><label id="paxLabel">Количество человек *</label><input type="number" name="seats" id="paxInput" required min="1" value="1" oninput="calculatePrice()"></div>
-                <div><label>E-mail</label><input type="email" name="email" placeholder="ivan@mail.ru"></div>
+                <div><label id="paxLabel">Количество человек *</label><input type="number" name="seats" id="paxInput" required min="1" value="<?= htmlspecialchars($_POST['seats'] ?? '1', ENT_QUOTES) ?>" oninput="calculatePrice()"></div>
+                <div><label>E-mail</label><input type="email" name="email" value="<?= htmlspecialchars($_POST['email'] ?? '', ENT_QUOTES) ?>" placeholder="ivan@mail.ru"></div>
             </div>
 
             <label>Пожелания</label>
-            <textarea name="notes" rows="1" placeholder="Ваши вопросы..."></textarea>
+            <textarea name="notes" rows="1" placeholder="Ваши вопросы..."><?= htmlspecialchars($_POST['notes'] ?? '', ENT_QUOTES) ?></textarea>
 
             <div id="priceDisplay" class="price-display">
                 <span class="price-label" id="priceLabelTxt">Итого к оплате:</span>
@@ -247,6 +191,7 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
     <?php endif; ?>
 </div>
 
+<?php if (!$form_submitted): ?>
 <script>
     const toursDataJs = <?= json_encode($tours_data_js, JSON_UNESCAPED_UNICODE) ?>;
     const workingDays = <?= json_encode($working_days) ?>;
@@ -259,7 +204,7 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
     const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
     let currentDate = new Date(); let currentMonth = currentDate.getMonth(); let currentYear = currentDate.getFullYear();
-    let selectedDateStr = ""; 
+    let selectedDateStr = <?= json_encode(validTourDate((string)($_POST['booking_date'] ?? '')) ? $_POST['booking_date'] : '') ?>;
     let selectedTourId = "<?= $preset_tour_id > 0 ? $preset_tour_id : '' ?>";
 
     const tourSelect = document.getElementById("tourSelect");
@@ -356,30 +301,20 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
             if (isAvailable && selectedTourId) {
                 const tInfo = toursDataJs[selectedTourId];
                 
-                // Если тур индивидуальный, проверяем, не заняты ли ВСЕ гиды
-                // Если тур групповой, нужно просто чтобы был ХОТЯ БЫ ОДИН гид на этот день (свободный или уже ведущий этот же тур)
-                
-                let availableGuides = 0;
-                allGuides.forEach(g => {
-                    let canDo = g.tours === 'all' || g.tours.includes(String(selectedTourId));
-                    let isOff = guideTimeoffs.some(off => off.date_off === dateStr && off.guide_name === g.name);
-                    
-                    // Ищет, занят ли гид в этот день
-                    let busyEvent = allEvents.find(e => e.tour_date === dateStr && e.guide === g.name);
-                    
-                    if (canDo && !isOff) {
-                        if (!busyEvent) {
-                            availableGuides++; // Гид полностью свободен
-                        } else {
-                            // Гид занят. Если тур ГРУППОВОЙ, и гид ведет ИМЕННО ЭТОТ тур, то он считается "доступным" для дозаписи!
-                            if (tInfo && tInfo.type === 'Групповая' && String(busyEvent.tour_id) === String(selectedTourId)) {
-                                availableGuides++;
-                            }
-                        }
-                    }
+                const dayEvents = allEvents.filter(e => e.tour_date === dateStr);
+                const sameTour = dayEvents.filter(e => String(e.tour_id) === selectedTourId);
+                const joiningGroup = tInfo?.type === 'Групповая' && sameTour.length > 0;
+                isAvailable = allGuides.some(g => {
+                    const canDo = g.tours === 'all' || g.tours.includes(selectedTourId);
+                    const isOff = guideTimeoffs.some(off => off.date_off === dateStr && off.guide_name === g.name);
+                    if (!canDo || isOff) return false;
+                    const busy = dayEvents.filter(e => e.guide === g.name);
+                    // An existing group can only accept bookings through its
+                    // assigned guide, with no conflicting departure that day.
+                    return joiningGroup
+                        ? busy.length === 1 && String(busy[0].tour_id) === selectedTourId
+                        : busy.length === 0;
                 });
-
-                if (availableGuides === 0) isAvailable = false;
             }
 
             if (!isAvailable) { cell.classList.add("disabled"); } else {
@@ -395,9 +330,16 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
         }
     }
 
+    if (selectedDateStr) {
+        const [y,m,d] = selectedDateStr.split('-').map(Number); currentMonth = m - 1; currentYear = y;
+        selectedDateBadge.style.display = 'block'; selectedDateBadge.textContent = `Выбрана дата: ${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}.${y}`;
+    }
+    document.getElementById('bookingForm').addEventListener('submit', event => {
+        if (!bookingDateInput.value) { event.preventDefault(); alert('Выберите свободную дату.'); return; }
+        if (event.submitter) { event.submitter.disabled = true; event.submitter.textContent = 'Отправка…'; }
+    });
     document.getElementById("prevMonthBtn").addEventListener("click", () => { currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentYear--; } if(selectedTourId) renderCalendar(currentMonth, currentYear); });
     document.getElementById("nextMonthBtn").addEventListener("click", () => { currentMonth++; if (currentMonth > 11) { currentMonth = 0; currentYear++; } if(selectedTourId) renderCalendar(currentMonth, currentYear); });
-    document.getElementById("bookingForm").addEventListener("submit", function(e) { if (!bookingDateInput.value) { e.preventDefault(); alert("Кликните на свободную дату в календаре!"); } });
 
     if (selectedTourId) {
         calOverlay.style.display = 'none';
@@ -407,6 +349,7 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
         renderCalendar(currentMonth, currentYear);
     }
 </script>
+<?php endif; ?>
 
 </body>
 </html>

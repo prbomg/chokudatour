@@ -3,6 +3,9 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once 'auth.php';
+require_once __DIR__ . '/homepage_helpers.php';
+$return_url = homeReturnUrl($_GET['return_to'] ?? 'index.php');
+$return_suffix = isset($_GET['return_to']) ? '&return_to=' . rawurlencode($return_url) : '';
 require_once __DIR__ . '/participant_seats.php';
 
 if ($current_user_role !== 'admin') {
@@ -54,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rename_tag'])) {
                 $pdo->prepare("UPDATE client_profiles SET tags = ? WHERE phone = ?")->execute([implode(',', array_unique(array_filter($tags_arr_c))), $p['phone']]);
             }
         }
-        header("Location: client.php?phone=" . urlencode($phone) . "&msg=tag_renamed");
+        header("Location: client.php?phone=" . urlencode($phone) . $return_suffix . "&msg=tag_renamed");
         exit;
     }
 }
@@ -78,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_tag'])) {
             $tags_arr_c = array_filter($tags_arr_c, function($t) use ($tag_to_delete) { return $t !== $tag_to_delete; });
             $pdo->prepare("UPDATE client_profiles SET tags = ? WHERE phone = ?")->execute([implode(',', $tags_arr_c), $p['phone']]);
         }
-        header("Location: client.php?phone=" . urlencode($phone) . "&msg=tag_deleted");
+        header("Location: client.php?phone=" . urlencode($phone) . $return_suffix . "&msg=tag_deleted");
         exit;
     }
 }
@@ -108,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
                    ON DUPLICATE KEY UPDATE tags = VALUES(tags), global_note = VALUES(global_note)")
         ->execute([$phone, $tags_str, $global_note]);
     
-    header("Location: client.php?phone=" . urlencode($phone) . "&msg=saved");
+    header("Location: client.php?phone=" . urlencode($phone) . $return_suffix . "&msg=saved");
     exit;
 }
 
@@ -123,7 +126,7 @@ $global_tags_str = $pdo->query("SELECT setting_value FROM global_settings WHERE 
 $all_existing_tags = $global_tags_str ? explode(',', $global_tags_str) : [];
 
 // История поездок и сбор почты
-$sql = "SELECT p.*, e.tour_date, t.name as tour_name 
+$sql = "SELECT p.*, e.id AS event_id, e.tour_date, t.name as tour_name
         FROM participants p 
         JOIN events e ON p.event_id = e.id 
         JOIN tours_catalog t ON e.tour_id = t.id 
@@ -250,7 +253,7 @@ function getStatusColor($status) {
 <div class="container">
     <?php include 'navbar.php'; ?>
 
-    <a href="clients.php" class="back-link">← Вернуться к базе клиентов</a>
+    <a href="<?= isset($_GET['return_to']) ? htmlspecialchars($return_url, ENT_QUOTES) : 'clients.php' ?>" class="back-link"><?= isset($_GET['return_to']) ? '← К списку экскурсий' : '← Вернуться к базе клиентов' ?></a>
 
     <div class="profile-header">
         <div class="ph-info">
@@ -350,7 +353,7 @@ function getStatusColor($status) {
                         <?php foreach($history as $h): ?>
                             <tr>
                                 <td style="white-space:nowrap; font-weight:600; color:var(--text-muted);"><?= date('d.m.Y', strtotime($h['tour_date'])) ?></td>
-                                <td><a href="event.php?id=<?= $h['event_id'] ?>" class="tour-link"><?= htmlspecialchars($h['tour_name']) ?></a></td>
+                                <td><a href="event.php?id=<?= $h['event_id'] ?><?= htmlspecialchars($return_suffix, ENT_QUOTES) ?>" class="tour-link"><?= htmlspecialchars($h['tour_name']) ?></a></td>
                                 <td><span style="font-weight:800;"><?= participantSeats($h) ?></span></td>
                                 <td style="font-weight:700; color:var(--text-main);"><?= number_format($h['price'], 0, '', ' ') ?> ₽</td>
                                 <td><span class="status-badge" style="<?= getStatusColor($h['status']) ?>"><?= htmlspecialchars($h['status']) ?></span></td>

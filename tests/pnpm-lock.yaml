@@ -1,0 +1,79 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      '@php-wasm/node-8-4':
+        specifier: 3.1.52
+        version: 3.1.52
+      '@php-wasm/universal':
+        specifier: 3.1.52
+        version: 3.1.52
+
+packages:
+
+  '@php-wasm/logger@3.1.52':
+    resolution: {integrity: sha512-Hr/pKVE4HPjQP4rwvAlZm0DvcEHlVFesHgAvASEc5LgOaKbULy7SVYvtozuuh1e+24Hg1n6CoxA0fKL+nsp+Dg==}
+    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+
+  '@php-wasm/node-8-4@3.1.52':
+    resolution: {integrity: sha512-M7L3lU0co6dPPi3PHs3agG6eeOHAszyJfUq/KmrmRReBJNHyviEcHpaGKextGJArJLfMvAAZjrhGOWVMBrQc/w==}
+    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+
+  '@php-wasm/progress@3.1.52':
+    resolution: {integrity: sha512-Zr4pHQDyX+OhkiLm830x0nt38L6ZRK3cWJMJNYSxvhlN7YKEmTHoA8hifchIE7OfgpF++s0rORXoBvEX5MmteA==}
+    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+
+  '@php-wasm/stream-compression@3.1.52':
+    resolution: {integrity: sha512-RpCCUpF/BwPLbqhUWxHz4utRtu5gSM66SaCFQkxdjAGI5yitaptsu1W6Z7Wp2UDabF3g1qfKfDog0JQ3D9azcw==}
+
+  '@php-wasm/universal@3.1.52':
+    resolution: {integrity: sha512-vgEV73SfpECzcCuTmr8+tGEzK6syk0p2I6E5CX2kJaE1/prCc4x5DyZtQ0dwhnzcEGrbhKDL2mpxxgl4B9fQOA==}
+    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+
+  '@php-wasm/util@3.1.52':
+    resolution: {integrity: sha512-lwxtwyIXEO8537eCv5iBfx1WW+DhSYc6obgtTQ6Up85GbHCE050n0RbOWva4XBu7T3Y5PfQshPoPccM/l14chA==}
+    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+
+  ini@4.1.2:
+    resolution: {integrity: sha512-AMB1mvwR1pyBFY/nSevUX6y8nJWS63/SzUKD3JyQn97s4xgIdgQPT75IRouIiBAN4yLQBUShNYVW0+UG25daCw==}
+    engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
+
+  wasm-feature-detect@1.8.0:
+    resolution: {integrity: sha512-zksaLKM2fVlnB5jQQDqKXXwYHLQUVH9es+5TOOHwGOVJOCeRBCiPjwSg+3tN2AdTCzjgli4jijCH290kXb/zWQ==}
+
+snapshots:
+
+  '@php-wasm/logger@3.1.52': {}
+
+  '@php-wasm/node-8-4@3.1.52':
+    dependencies:
+      '@php-wasm/universal': 3.1.52
+      wasm-feature-detect: 1.8.0
+
+  '@php-wasm/progress@3.1.52':
+    dependencies:
+      '@php-wasm/logger': 3.1.52
+
+  '@php-wasm/stream-compression@3.1.52':
+    dependencies:
+      '@php-wasm/util': 3.1.52
+
+  '@php-wasm/universal@3.1.52':
+    dependencies:
+      '@php-wasm/logger': 3.1.52
+      '@php-wasm/progress': 3.1.52
+      '@php-wasm/stream-compression': 3.1.52
+      '@php-wasm/util': 3.1.52
+      ini: 4.1.2
+
+  '@php-wasm/util@3.1.52': {}
+
+  ini@4.1.2: {}
+
+  wasm-feature-detect@1.8.0: {}

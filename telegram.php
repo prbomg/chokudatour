@@ -6,7 +6,7 @@ function sendTelegramMessage($message) {
     $botToken = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'tg_bot'")->fetchColumn();
     $chatId = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'tg_chat'")->fetchColumn();
 
-    if (empty($botToken) || empty($chatId)) return false;
+    if (empty($botToken) || empty($chatId)) return null;
 
     $url = "https://api.telegram.org/bot" . $botToken . "/sendMessage";
     $data = [
@@ -21,12 +21,12 @@ function sendTelegramMessage($message) {
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); // Обязательный фикс для хостинга
     
     $result = curl_exec($ch);
     curl_close($ch);
     
-    return $result;
+    return $result && (json_decode($result, true)['ok'] ?? false) ? $result : false;
 }
 ?>

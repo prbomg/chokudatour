@@ -3,6 +3,16 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'auth.php';
+require_once __DIR__ . '/request_helpers.php';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['ajax_load_past_participants']) || isset($_POST['update_participant']) || isset($_POST['del_participant']))) {
+    requireFormToken();
+    if (isset($_POST['update_participant']) || isset($_POST['del_participant'])) {
+        $access_id = (int)(isset($_POST['update_participant']) ? ($_POST['participant_id'] ?? 0) : $_POST['del_participant']);
+        $access_stmt = $pdo->prepare('SELECT event_id FROM participants WHERE id = ?');
+        $access_stmt->execute([$access_id]);
+        requireEventAccess($pdo, (int)$access_stmt->fetchColumn(), $current_user_role, $current_user_name);
+    }
+}
 require_once __DIR__ . '/participant_seats.php';
 
 // --- РЕДАКТИРОВАНИЕ УЧАСТНИКА ---
@@ -27,8 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])
 }
 
 // --- УДАЛЕНИЕ УЧАСТНИКА ---
-if (isset($_GET['del_participant'])) {
-    $pdo->prepare("DELETE FROM participants WHERE id = ?")->execute([(int)$_GET['del_participant']]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_participant'])) {
+    $pdo->prepare("DELETE FROM participants WHERE id = ?")->execute([(int)$_POST['del_participant']]);
     $qs = preg_replace('/&?del_participant=[^&]*/', '', $_SERVER['QUERY_STRING']);
     $qs = preg_replace('/&?msg=[^&]*/', '', $qs);
     header("Location: participants.php?" . $qs . ($qs ? '&' : '') . "msg=deleted"); exit;
@@ -89,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
             $note_html = !empty($p['notes']) ? "<div class='note-truncate' data-note='".htmlspecialchars($p['notes'], ENT_QUOTES)."' onclick=\"showNoteModal(this.getAttribute('data-note'))\">" . htmlspecialchars($p['notes']) . "</div>" : "—";
             $email_html = !empty($p['email']) ? "<span style='color:var(--text-muted); font-size:12px; font-weight:500;'>".htmlspecialchars($p['email'])."</span>" : "";
 
-            $forms .= "<form id='formEditP_{$p_id}' method='POST'><input type='hidden' name='update_participant' value='1'><input type='hidden' name='participant_id' value='{$p_id}'></form>";
+            $forms .= "<form id='formEditP_{$p_id}' method='POST'>" . formTokenInput() . "<input type='hidden' name='update_participant' value='1'><input type='hidden' name='participant_id' value='{$p_id}'></form>";
             
             $html .= "
             <tr class='view_p_{$p_id} past-event-row' style='opacity: {$opacity};'>
@@ -117,9 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
                         <button type='button' class='btn-icon btn-edit' onclick='toggleEditP({$p_id})' title='Редактировать'>
                             <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7'></path><path d='M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'></path></svg>
                         </button>
-                        <a href='?del_participant={$p_id}&" . $_SERVER['QUERY_STRING'] . "' class='btn-icon btn-del' onclick=\"return confirm('Точно удалить туриста из базы?');\" title='Удалить'>
-                            <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='3 6 5 6 21 6'></polyline><path d='M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'></path><line x1='10' y1='11' x2='10' y2='17'></line><line x1='14' y1='11' x2='14' y2='17'></line></svg>
-                        </a>
+                        " . deleteControl('participants.php?' . $_SERVER['QUERY_STRING'], 'del_participant', (int)$p_id, 'Удалить туриста?') . "
                     </div>
                 </td>
             </tr>";
@@ -481,7 +489,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
     <?php endif; ?>
 
     <?php foreach ($participants as $p): ?>
-        <form id="formEditP_<?= $p['id'] ?>" method="POST">
+        <form id="formEditP_<?= $p['id'] ?>" method="POST"><?= formTokenInput() ?>
             <input type="hidden" name="update_participant" value="1">
             <input type="hidden" name="participant_id" value="<?= $p['id'] ?>">
         </form>
@@ -560,9 +568,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                                 <button type="button" class="btn-icon btn-edit" onclick="toggleEditP(<?= $p_id ?>)" title="Редактировать">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                 </button>
-                                <a href="?del_participant=<?= $p_id ?>&<?= $_SERVER['QUERY_STRING'] ?>" class="btn-icon btn-del" onclick="return confirm('Точно удалить туриста из базы?');" title="Удалить">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                                </a>
+                                <?= deleteControl('participants.php?' . $_SERVER['QUERY_STRING'], 'del_participant', (int)$p_id, 'Удалить туриста?') ?>
                             </div>
                         </td>
                     </tr>
