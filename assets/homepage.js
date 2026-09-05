@@ -165,3 +165,18 @@ const {tourTimes} = window.homePageConfig;
         restoring = false;
     })();
 })();
+
+// Progressive disclosure keeps the quick form available without JavaScript.
+(() => {
+    const toggle = document.getElementById('toggleAddEvent');
+    const row = document.getElementById('add_event_row');
+    if (!toggle || !row) return;
+    row.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+        row.hidden = !row.hidden;
+        toggle.setAttribute('aria-expanded', String(!row.hidden));
+        toggle.textContent = row.hidden ? '+ Добавить выезд' : 'Закрыть форму';
+        if (!row.hidden) row.querySelector('input')?.focus();
+    });
+})();
