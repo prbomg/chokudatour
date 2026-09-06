@@ -4,8 +4,9 @@ error_reporting(E_ALL);
 
 require_once 'auth.php';
 require_once __DIR__ . '/homepage_helpers.php';
-$return_url = homeReturnUrl($_GET['return_to'] ?? 'index.php');
+$return_url = clientReturnUrl($_GET['return_to'] ?? 'index.php');
 $return_suffix = isset($_GET['return_to']) ? '&return_to=' . rawurlencode($return_url) : '';
+$return_is_event = str_starts_with($return_url, 'event.php?');
 require_once __DIR__ . '/participant_seats.php';
 
 if ($current_user_role !== 'admin') {
@@ -253,7 +254,7 @@ function getStatusColor($status) {
 <div class="container">
     <?php include 'navbar.php'; ?>
 
-    <a href="<?= isset($_GET['return_to']) ? htmlspecialchars($return_url, ENT_QUOTES) : 'clients.php' ?>" class="back-link"><?= isset($_GET['return_to']) ? '← К списку экскурсий' : '← Вернуться к базе клиентов' ?></a>
+    <a href="<?= isset($_GET['return_to']) ? htmlspecialchars($return_url, ENT_QUOTES) : 'clients.php' ?>" class="back-link"><?= isset($_GET['return_to']) ? ($return_is_event ? '← Вернуться к выезду' : '← К списку экскурсий') : '← Вернуться к базе клиентов' ?></a>
 
     <div class="profile-header">
         <div class="ph-info">

@@ -37,6 +37,21 @@ function homeReturnUrl($value): string
     try { return homeUrl($query); } catch (InvalidArgumentException $e) { return 'index.php'; }
 }
 
+// Client pages may safely return either to the filtered homepage or to one
+// concrete event that itself remembers the filtered homepage.
+function clientReturnUrl($value): string
+{
+    if (!is_string($value)) return 'index.php';
+    if (preg_match('~^event\.php(?:\?[^#\r\n]*)?$~D', $value)) {
+        parse_str(parse_url($value, PHP_URL_QUERY) ?? '', $query);
+        $id = isset($query['id']) && is_scalar($query['id']) ? (int)$query['id'] : 0;
+        if ($id < 1) return 'index.php';
+        $home = homeReturnUrl($query['return_to'] ?? 'index.php');
+        return 'event.php?id=' . $id . '&return_to=' . rawurlencode($home);
+    }
+    return homeReturnUrl($value);
+}
+
 function homeFilterWhere(array $filters, array &$params, bool $past = false): string
 {
     $sql = $past ? 'e.tour_date < CURDATE()' : 'e.tour_date >= ' . (isset($filters['date_from']) ? '?' : 'CURDATE()');

@@ -16,7 +16,7 @@ let queue = Promise.resolve();
 const server = http.createServer((req,res) => {
   queue = queue.then(async () => {
     const url = new URL(req.url,'http://127.0.0.1:8765');
-    if (['/assets/homepage.js','/assets/homepage-actions.js','/assets/homepage-base.css','/assets/homepage-workspace.css','/assets/style.css','/assets/app.js'].includes(url.pathname)) {
+    if (['/assets/homepage.js','/assets/homepage-actions.js','/assets/homepage-base.css','/assets/homepage-workspace.css','/assets/event-workspace.css','/assets/event-workspace.js','/assets/style.css','/assets/app.js'].includes(url.pathname)) {
       res.setHeader('Content-Type',url.pathname.endsWith('.js')?'text/javascript':'text/css');
       res.end(await readFile(new URL(url.pathname.slice(1),root))); return;
     }
