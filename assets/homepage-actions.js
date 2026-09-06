@@ -132,14 +132,25 @@
             const tourists=row.querySelector('[data-label="Туристы"]');
             const add=element('button','quick-tourist','+ Турист'); add.type='button'; add.onclick=()=>addTourist(id);
             const empty=tourists.querySelector('.btn-add-tourist'); if(empty) empty.remove(); tourists.append(add);
-            const copy=element('button','btn-icon','⧉'); copy.type='button'; copy.title='Повторить выезд'; copy.setAttribute('aria-label','Повторить выезд'); copy.onclick=()=>repeat(id); row.querySelector('.action-cell').append(copy);
+            const actions=row.querySelector('.action-cell');
+            actions.querySelector('a.btn-view')?.remove();
+            const copy=element('button','btn-icon btn-duplicate'); copy.type='button'; copy.title='Повторить выезд'; copy.setAttribute('aria-label','Повторить выезд');
+            copy.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path></svg>';
+            copy.onclick=()=>repeat(id); actions.insertBefore(copy,actions.querySelector('form'));
             const note=row.querySelector('.note-truncate');
-            if(note) { note.removeAttribute('onclick'); const expand=element('button','note-expand','Развернуть'); expand.type='button'; expand.setAttribute('aria-expanded','false'); expand.onclick=()=>{const open=note.classList.toggle('note-expanded'); expand.textContent=open?'Свернуть':'Развернуть'; expand.setAttribute('aria-expanded',String(open));}; note.after(expand); }
+            if(note) {
+                const fullText=(note.dataset.note || note.textContent).trim();
+                note.textContent=fullText; note.removeAttribute('onclick'); note.closest('td').classList.add('note-cell');
+                if(fullText.length > 60 || fullText.includes('\n')) {
+                    const expand=element('button','note-expand','Ещё ↓'); expand.type='button'; expand.setAttribute('aria-expanded','false');
+                    expand.onclick=()=>{const open=note.classList.toggle('note-expanded'); expand.textContent=open?'Свернуть ↑':'Ещё ↓'; expand.setAttribute('aria-expanded',String(open));}; note.after(expand);
+                } else note.classList.add('note-short');
+            }
         }
     }
     enhance(); new MutationObserver(enhance).observe(table,{childList:true});
     table.addEventListener('click',event=>{
-        const link=event.target.closest('a.link-tour,a.btn-view');
+        const link=event.target.closest('a.link-tour');
         if(!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
         const url=new URL(link.href); if(!url.pathname.endsWith('/event.php')) return;
         event.preventDefault(); panel(url.searchParams.get('id'));
