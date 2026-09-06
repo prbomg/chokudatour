@@ -50,6 +50,9 @@ try {
           $data['all_events'] = $GLOBALS['pdo']->query('SELECT * FROM events ORDER BY id')->fetchAll();
           $data['expenses'] = $GLOBALS['pdo']->query('SELECT * FROM expenses ORDER BY id')->fetchAll();
           $data['notifications'] = $GLOBALS['notifications'] ?? [];
+          if ($GLOBALS['pdo']->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='client_profiles'")->fetchColumn()) {
+            $data['client_profiles'] = $GLOBALS['pdo']->query('SELECT * FROM client_profiles ORDER BY phone')->fetchAll();
+          }
         }
         file_put_contents('/app/result.json', json_encode($data));
       });
@@ -89,6 +92,33 @@ try {
   const clientFromEvent = await page('client.php', {phone:'70000000000',return_to:eventReturn});
   assert.ok(clientFromEvent.html.includes('Вернуться к выезду'));
   assert.ok(clientFromEvent.html.includes('event.php?id=1&amp;return_to=index.php%3Ftour_filter%3D1'));
+  assert.ok(clientFromEvent.html.includes('href="index.php" class="nav-link'));
+  assert.ok(clientFromEvent.html.includes('data-history-filter="cancelled"'));
+  assert.ok(clientFromEvent.html.includes('data-trip-state="active"'));
+  checks++;
+  const clientList = await page('clients.php');
+  assert.ok(clientList.html.includes('База клиентов'));
+  assert.ok(clientList.html.includes('4 поездки'));
+  assert.ok(clientList.html.includes('12 мест'));
+  assert.ok(clientList.html.includes('13 500 ₽'));
+  assert.ok(clientList.html.includes('return_to=clients.php'));
+  checks++;
+  const filteredClientList = await page('clients.php', {search:'Тестовый',tour_id:1});
+  assert.ok(filteredClientList.html.includes('Тестовый турист'));
+  assert.ok(filteredClientList.html.includes('return_to=clients.php%3Fsearch%3D'));
+  assert.ok(filteredClientList.html.includes('%26tour_id%3D1'));
+  checks++;
+  const exactTagFilter = await page('clients.php', {tag:'VIP'}, {}, false, {setup:["CREATE TABLE client_profiles (phone TEXT PRIMARY KEY,tags TEXT,global_note TEXT)","INSERT INTO client_profiles VALUES ('70000000000','VIP2','')"]});
+  assert.ok(exactTagFilter.html.includes('Клиенты не найдены'));
+  checks++;
+  const savedClient = await page('client.php', {phone:'70000000000'}, {update_profile:1,tags:['VIP'],custom_tag:'Из Москвы',global_note:'Сидит впереди'});
+  assert.equal(savedClient.data.client_profiles[0].tags, 'VIP,Из Москвы');
+  assert.equal(savedClient.data.client_profiles[0].global_note, 'Сидит впереди');
+  assert.ok(savedClient.headers.location[0].includes('msg=saved'));
+  checks++;
+  const clientCsrf = await page('client.php', {phone:'70000000000'}, {update_profile:1,tags:['VIP'],global_note:'Не сохранять',csrf_token:''});
+  assert.equal(clientCsrf.status, 403);
+  assert.equal(clientCsrf.data.client_profiles.length, 0);
   checks++;
   const invalidEventUpdate = await page('event.php', {id:1}, {update_event_details:1,tour_date:'2026-02-30',time:'14:00',tour_id:1,guide:'Гид А',notes:'x'});
   assert.equal(invalidEventUpdate.status, 422);

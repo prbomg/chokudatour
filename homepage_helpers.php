@@ -42,6 +42,15 @@ function homeReturnUrl($value): string
 function clientReturnUrl($value): string
 {
     if (!is_string($value)) return 'index.php';
+    if (preg_match('~^clients\.php(?:\?[^#\r\n]*)?$~D', $value)) {
+        parse_str(parse_url($value, PHP_URL_QUERY) ?? '', $query);
+        $filters = [];
+        if (isset($query['search']) && is_scalar($query['search']) && trim((string)$query['search']) !== '') $filters['search'] = trim((string)$query['search']);
+        if (isset($query['tour_id']) && is_scalar($query['tour_id']) && ctype_digit((string)$query['tour_id']) && (int)$query['tour_id'] > 0) $filters['tour_id'] = (int)$query['tour_id'];
+        if (isset($query['tag']) && is_scalar($query['tag']) && trim((string)$query['tag']) !== '') $filters['tag'] = trim((string)$query['tag']);
+        $queryString = http_build_query($filters, '', '&', PHP_QUERY_RFC3986);
+        return 'clients.php' . ($queryString === '' ? '' : '?' . $queryString);
+    }
     if (preg_match('~^event\.php(?:\?[^#\r\n]*)?$~D', $value)) {
         parse_str(parse_url($value, PHP_URL_QUERY) ?? '', $query);
         $id = isset($query['id']) && is_scalar($query['id']) ? (int)$query['id'] : 0;
