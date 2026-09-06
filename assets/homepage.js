@@ -43,8 +43,7 @@ const {tourTimes} = window.homePageConfig;
     }
 
     function toggleEditE(id) {
-        document.querySelectorAll('.view_e_' + id).forEach(el => el.style.display = 'none');
-        document.querySelectorAll('.edit_e_' + id).forEach(el => el.style.display = '');
+        window.homeWorkspace.edit(id);
     }
     function cancelEditE(id) {
         document.getElementById('formEditE_' + id)?.reset();
@@ -127,7 +126,7 @@ const {tourTimes} = window.homePageConfig;
         event.preventDefault();
         if (form.dataset.saving) return;
         form.dataset.saving = '1';
-        const formError = form.id === 'ajaxAddEventForm' && document.getElementById('addEventError');
+        const formError = form.id === 'ajaxAddEventForm' ? document.getElementById('addEventError') : form.closest('dialog')?.querySelector('[role=alert]');
         if (formError) formError.hidden = true;
         const submit = event.submitter;
         if (submit) submit.disabled = true;
