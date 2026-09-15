@@ -11,8 +11,14 @@ if ($current_user_role !== 'admin') {
 }
 
 // --- ФИЛЬТРЫ ДАТ (ДЛЯ ВЕРХНИХ БЛОКОВ) ---
-$date_from = $_GET['date_from'] ?? date('Y-m-01'); // По умолчанию с 1 числа текущего месяца
-$date_to = $_GET['date_to'] ?? date('Y-m-t');      // По умолчанию до конца текущего месяца
+function analyticsDate(string $value, string $fallback): string {
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+    return $date && $date->format('Y-m-d') === $value ? $value : $fallback;
+}
+
+$date_from = analyticsDate((string)($_GET['date_from'] ?? ''), date('Y-m-01'));
+$date_to = analyticsDate((string)($_GET['date_to'] ?? ''), date('Y-m-t'));
+if ($date_from > $date_to) [$date_from, $date_to] = [$date_to, $date_from];
 
 // --- 1. СБОР ОСНОВНОЙ ФИНАНСОВОЙ СТАТИСТИКИ ---
 // Выручка и количество мест (только не отмененные)
@@ -73,27 +79,28 @@ foreach ($sources as $s) {
 
 // --- 3. ТОП ТУРОВ (ДОРАБОТАНО: Считаем расходы и маржу по туру) ---
 $stmt_top_tours = $pdo->prepare("
-    SELECT t.id, t.name, SUM(p.price) as rev, SUM({$participant_seats_sql}) as pax
+    SELECT t.id, t.name, SUM(p.price) as rev, SUM({$participant_seats_sql}) as pax,
+           COALESCE(MAX(event_expenses.exp), 0) as exp
     FROM participants p 
     JOIN events e ON p.event_id = e.id 
     JOIN tours_catalog t ON e.tour_id = t.id 
+    LEFT JOIN (
+        SELECT e2.tour_id, SUM(ex.amount) as exp
+        FROM expenses ex
+        JOIN events e2 ON ex.event_id = e2.id
+        WHERE e2.tour_date BETWEEN ? AND ?
+        GROUP BY e2.tour_id
+    ) event_expenses ON event_expenses.tour_id = t.id
     WHERE p.status != 'Отмена' AND e.tour_date BETWEEN ? AND ? 
     GROUP BY t.id 
     ORDER BY rev DESC 
     LIMIT 5
 ");
-$stmt_top_tours->execute([$date_from, $date_to]);
+$stmt_top_tours->execute([$date_from, $date_to, $date_from, $date_to]);
 $top_tours = $stmt_top_tours->fetchAll(PDO::FETCH_ASSOC);
 
 foreach ($top_tours as &$tt) {
-    // Считаем расходы на этот конкретный тур за период
-    $stmt_t_exp = $pdo->prepare("
-        SELECT SUM(ex.amount) FROM expenses ex 
-        JOIN events e ON ex.event_id = e.id 
-        WHERE e.tour_id = ? AND e.tour_date BETWEEN ? AND ?
-    ");
-    $stmt_t_exp->execute([$tt['id'], $date_from, $date_to]);
-    $tt['exp'] = (int)$stmt_t_exp->fetchColumn();
+    $tt['exp'] = (int)$tt['exp'];
     $tt['profit'] = $tt['rev'] - $tt['exp'];
     $tt['margin'] = $tt['rev'] > 0 ? round(($tt['profit'] / $tt['rev']) * 100, 1) : 0;
 }
@@ -122,6 +129,7 @@ function getPercent($part, $total) {
 // --- 5. ГОДОВАЯ СТАТИСТИКА ПО МЕСЯЦАМ (НЕ ЗАВИСИТ ОТ ВЕРХНИХ ФИЛЬТРОВ) ---
 // =========================================================================
 $stat_year = isset($_GET['stat_year']) ? (int)$_GET['stat_year'] : (int)date('Y');
+if ($stat_year < 2000 || $stat_year > 2100) $stat_year = (int)date('Y');
 
 // Доходы по месяцам
 $stmt_m_rev = $pdo->prepare("
@@ -301,15 +309,21 @@ if (!in_array($stat_year, $available_years)) {
             .source-split { grid-template-columns: 1fr !important; }
         }
     </style>
+    <link rel="stylesheet" href="assets/analytics-workspace.css?v=<?= filemtime(__DIR__ . '/assets/analytics-workspace.css') ?>">
 </head>
 <body>
 
 <div class="container">
     <?php include 'navbar.php'; ?>
 
-    <div class="header-box">
-        <h2>Финансовая Аналитика</h2>
-    </div>
+    <header class="analytics-hero">
+        <div>
+            <span class="eyebrow">Финансы и продажи</span>
+            <h1>Аналитика</h1>
+            <p>Доходы, расходы и эффективность направлений за выбранный период.</p>
+        </div>
+        <div class="period-badge"><?= date('d.m.Y', strtotime($date_from)) ?> — <?= date('d.m.Y', strtotime($date_to)) ?></div>
+    </header>
 
     <?php 
         $tdy = date('Y-m-d');
@@ -321,10 +335,10 @@ if (!in_array($stat_year, $available_years)) {
         $y_end = date('Y-12-31');
     ?>
     <div class="quick-filters">
-        <a href="?date_from=<?= $tdy ?>&date_to=<?= $tdy ?>&stat_year=<?= $stat_year ?>" class="pill">Сегодня</a>
-        <a href="?date_from=<?= $m_start ?>&date_to=<?= $m_end ?>&stat_year=<?= $stat_year ?>" class="pill">Этот месяц</a>
-        <a href="?date_from=<?= $lm_start ?>&date_to=<?= $lm_end ?>&stat_year=<?= $stat_year ?>" class="pill">Прошлый месяц</a>
-        <a href="?date_from=<?= $y_start ?>&date_to=<?= $y_end ?>&stat_year=<?= $stat_year ?>" class="pill">Весь год</a>
+        <a href="?date_from=<?= $tdy ?>&date_to=<?= $tdy ?>&stat_year=<?= $stat_year ?>" class="pill <?= $date_from === $tdy && $date_to === $tdy ? 'active' : '' ?>">Сегодня</a>
+        <a href="?date_from=<?= $m_start ?>&date_to=<?= $m_end ?>&stat_year=<?= $stat_year ?>" class="pill <?= $date_from === $m_start && $date_to === $m_end ? 'active' : '' ?>">Этот месяц</a>
+        <a href="?date_from=<?= $lm_start ?>&date_to=<?= $lm_end ?>&stat_year=<?= $stat_year ?>" class="pill <?= $date_from === $lm_start && $date_to === $lm_end ? 'active' : '' ?>">Прошлый месяц</a>
+        <a href="?date_from=<?= $y_start ?>&date_to=<?= $y_end ?>&stat_year=<?= $stat_year ?>" class="pill <?= $date_from === $y_start && $date_to === $y_end ? 'active' : '' ?>">Весь год</a>
     </div>
 
     <form class="search-box" method="GET">
@@ -358,11 +372,15 @@ if (!in_array($stat_year, $available_years)) {
             <div class="dash-title">Рентабельность</div>
             <div class="dash-val" style="color: #3B82F6;"><?= $margin_percent ?>%</div>
         </div>
+        <div class="dash-card seats">
+            <div class="dash-title">Забронировано мест</div>
+            <div class="dash-val"><?= number_format($total_seats, 0, '', ' ') ?></div>
+        </div>
     </div>
 
     <div class="charts-layout">
         <div class="card">
-            <h3>Эффективность источников</h3>
+            <h3>Источники продаж</h3>
             <div class="source-split" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: center;">
                 
                 <div>
@@ -404,7 +422,7 @@ if (!in_array($stat_year, $available_years)) {
 
         <div style="display:flex; flex-direction:column; gap:30px;">
             <div class="card" style="padding: 25px;">
-                <h3 style="font-size:16px; margin-top:0; border-bottom: 2px solid #F1F5F9; padding-bottom: 15px; margin-bottom: 15px;">🔥 Топ-5 популярных туров</h3>
+                <h3 style="font-size:16px; margin-top:0; border-bottom: 2px solid #F1F5F9; padding-bottom: 15px; margin-bottom: 15px;">Топ-5 туров</h3>
                 <?php if (empty($top_tours)): ?>
                     <div style="color:var(--text-muted); font-size:13px; text-align:center; padding: 20px;">Нет данных</div>
                 <?php else: ?>
@@ -442,7 +460,7 @@ if (!in_array($stat_year, $available_years)) {
             </div>
 
             <div class="card" style="padding: 25px;">
-                <h3 style="font-size:16px; margin-top:0; border-bottom: 2px solid #F1F5F9; padding-bottom: 15px; margin-bottom: 15px;">🌟 Эффективность гидов</h3>
+                <h3 style="font-size:16px; margin-top:0; border-bottom: 2px solid #F1F5F9; padding-bottom: 15px; margin-bottom: 15px;">Эффективность гидов</h3>
                 <?php if (empty($top_guides)): ?>
                     <div style="color:var(--text-muted); font-size:13px; text-align:center; padding: 20px;">Нет данных</div>
                 <?php else: ?>

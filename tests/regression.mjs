@@ -188,6 +188,13 @@ try {
   checks++;
   const analytics = await page('analytics.php', {date_from:'2026-09-01',date_to:'2026-09-30'});
   assert.equal(analytics.data.total_seats, 6);
+  assert.ok(analytics.html.includes('assets/analytics-workspace.css'));
+  assert.ok(analytics.html.includes('Забронировано мест'));
+  assert.ok(analytics.html.includes('01.09.2026 — 30.09.2026'));
+  checks++;
+  const normalizedAnalytics = await page('analytics.php', {date_from:'2026-09-30',date_to:'2026-09-01',stat_year:'9999'});
+  assert.equal(normalizedAnalytics.data.total_seats, 6);
+  assert.ok(normalizedAnalytics.html.includes('01.09.2026 — 30.09.2026'));
   checks++;
   const feed = await page('calendar_feed.php', {token:'fixture-token'});
   assert.ok(feed.html.includes('историческую усадьбу [Гид А] (3 чел.)'));
