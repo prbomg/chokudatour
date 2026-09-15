@@ -1,35 +1,14 @@
 <?php
 require_once __DIR__ . '/participant_seats.php';
 // cron_email.php
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 error_reporting(E_ALL);
-
-// === 1. НАСТРОЙКИ БАЗЫ ДАННЫХ И ПОЧТЫ ===
-$host = 'localhost';
-$db   = 'cc47946_devcrm'; // Укажи имя базы
-$user = 'cc47946_devcrm'; // Укажи пользователя БД
-$pass = '146580Serg!';    // Укажи пароль БД
-$charset = 'utf8mb4';
-
-$admin_email = 'rubcov@my.com'; // УКАЖИ СВОЙ EMAIL
-
-// === 2. СЕКРЕТНЫЙ ТОКЕН ЗАЩИТЫ ===
-$secret_token = 'super_secret_tour_2026'; 
-if (!isset($_GET['token']) || $_GET['token'] !== $secret_token) {
-    die('Доступ закрыт.');
-}
-
-// Подключаемся к базе
-$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-$options = [
-    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    PDO::ATTR_EMULATE_PREPARES   => false,
-];
-try {
-    $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (\PDOException $e) {
-    die("Ошибка подключения к БД: " . $e->getMessage());
+require_once __DIR__ . '/db.php';
+$config = appConfig();
+$admin_email = requiredConfig($config, 'ADMIN_EMAIL');
+$secret_token = requiredConfig($config, 'CRON_TOKEN');
+if (!isset($_GET['token']) || !is_string($_GET['token']) || !hash_equals($secret_token, $_GET['token'])) {
+    http_response_code(403); die('Доступ закрыт.');
 }
 
 // Авто-добавление колонки дефолтного времени в tours_catalog

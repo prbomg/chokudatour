@@ -1,12 +1,10 @@
 <?php
-session_start();
+require_once __DIR__ . '/session_bootstrap.php';
 require_once 'db.php';
+require_once __DIR__ . '/auth_helpers.php';
 
 // Удаляем токен из БД и очищаем куки
-if (isset($_COOKIE['remember_token'])) {
-    $pdo->prepare("UPDATE users SET remember_token = NULL WHERE remember_token = ?")->execute([$_COOKIE['remember_token']]);
-    setcookie('remember_token', '', time() - 3600, "/");
-}
+clearRememberToken($pdo);
 
 session_unset();
 session_destroy();

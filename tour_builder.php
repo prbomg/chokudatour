@@ -4,6 +4,7 @@ error_reporting(E_ALL);
 
 require_once 'auth.php';
 require_once __DIR__ . '/request_helpers.php';
+require_once __DIR__ . '/file_storage.php';
 
 if ($current_user_role !== 'admin') { http_response_code(403); die("<h2 style='text-align:center; margin-top:50px;'>Доступ закрыт.</h2>"); }
 if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
@@ -26,7 +27,7 @@ $columns = [
     'prices' => 'TEXT DEFAULT NULL', 'description' => 'TEXT DEFAULT NULL',
     'default_start_time' => "VARCHAR(50) DEFAULT '10:00'",
     'difficulty' => "VARCHAR(255) DEFAULT 'Легкая'",
-    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'"
+    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'", 'images' => 'TEXT DEFAULT NULL'
 ];
 foreach ($columns as $col => $type) {
     try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN $col $type"); } catch(PDOException $e) {}
@@ -35,7 +36,7 @@ foreach ($columns as $col => $type) {
 // --- ФУНКЦИЯ ДЛЯ СЖАТИЯ И КОНВЕРТАЦИИ В WebP ---
 function optimizeImageToWebp($tmpName, $prefix) {
     $info = @getimagesize($tmpName);
-    if (!$info) return false;
+    if (!$info || (($info[0] ?? 0) * ($info[1] ?? 0) > 40000000)) return false;
     
     $mime = $info['mime'];
     switch ($mime) {
@@ -63,8 +64,8 @@ function optimizeImageToWebp($tmpName, $prefix) {
     
     imagecopyresampled($newImg, $img, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
     
-    if (!is_dir('uploads')) mkdir('uploads', 0777, true);
-    $filename = 'uploads/' . $prefix . '_' . time() . '.webp';
+    if (!is_dir(__DIR__ . '/uploads')) mkdir(__DIR__ . '/uploads', 0755, true);
+    $filename = 'uploads/' . preg_replace('/[^a-z0-9_-]+/i', '_', $prefix) . '_' . bin2hex(random_bytes(8)) . '.webp';
     
     imagewebp($newImg, $filename, 85);
     
@@ -81,6 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_module_ajax'])) 
     $timing = trim($_POST['timing']); 
     $content = trim($_POST['content']);
     $image_path = '';
+    $old_image_path = '';
     
     if ($module_id > 0) { 
         $stmt_image = $pdo->prepare('SELECT image_path FROM tour_modules WHERE id=? AND tour_id=?');
@@ -92,18 +94,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_module_ajax'])) 
     if (isset($_FILES['module_image']) && $_FILES['module_image']['error'] === UPLOAD_ERR_OK) {
         $optimized_path = optimizeImageToWebp($_FILES['module_image']['tmp_name'], 'mod_' . $tour_id);
         if ($optimized_path) {
-            if ($image_path && file_exists($image_path)) { @unlink($image_path); }
+            $old_image_path = $image_path;
             $image_path = $optimized_path;
         }
     }
+    if ($title === '') {
+        if ($image_path !== '' && $image_path !== $old_image_path) deleteUploadFile($image_path);
+        http_response_code(422);
+        echo json_encode(['status'=>'error', 'message'=>'Укажите название этапа.']);
+        exit;
+    }
     
-    if ($title !== '') {
+    try {
         if ($module_id > 0) { 
             $pdo->prepare("UPDATE tour_modules SET title=?, timing=?, content=?, image_path=? WHERE id=? AND tour_id=?")->execute([$title, $timing, $content, $image_path, $module_id, $tour_id]);
+            if (!empty($old_image_path) && $old_image_path !== $image_path) deleteTourImageIfUnused($pdo, $old_image_path);
         } else { 
             $pdo->prepare("INSERT INTO tour_modules (tour_id, title, timing, content, image_path) VALUES (?, ?, ?, ?, ?)")->execute([$tour_id, $title, $timing, $content, $image_path]); 
             $module_id = $pdo->lastInsertId();
         }
+    } catch (Throwable $e) {
+        if ($image_path !== '' && $image_path !== $old_image_path) deleteUploadFile($image_path);
+        throw $e;
     }
     
     $stmt_saved = $pdo->prepare('SELECT * FROM tour_modules WHERE id=? AND tour_id=?');
@@ -119,8 +131,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_module_ajax'])) {
     $stmt_image = $pdo->prepare('SELECT image_path FROM tour_modules WHERE id=? AND tour_id=?');
     $stmt_image->execute([$m_id, $tour_id]);
     $img = $stmt_image->fetchColumn();
-    if ($img && file_exists($img)) { @unlink($img); }
-    $pdo->exec("DELETE FROM tour_modules WHERE id = $m_id AND tour_id = $tour_id");
+    $pdo->prepare('DELETE FROM tour_modules WHERE id=? AND tour_id=?')->execute([$m_id, $tour_id]);
+    deleteTourImageIfUnused($pdo, (string)$img);
     echo json_encode(['status' => 'success']);
     exit;
 }
@@ -174,19 +186,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tour_settings'])
     $stmt_img = $pdo->prepare("SELECT main_image FROM tours_catalog WHERE id = ?");
     $stmt_img->execute([$tour_id]);
     $main_image = $stmt_img->fetchColumn() ?: '';
+    $old_main_image = '';
 
     // WebP оптимизация для главной обложки
     if (isset($_FILES['main_image']) && $_FILES['main_image']['error'] === UPLOAD_ERR_OK) {
         $optimized_path = optimizeImageToWebp($_FILES['main_image']['tmp_name'], 'tour_main_' . $tour_id);
         if ($optimized_path) {
-            if ($main_image && file_exists($main_image)) { @unlink($main_image); }
+            $old_main_image = $main_image;
             $main_image = $optimized_path;
         }
     }
 
     if ($name !== '') {
         $stmt = $pdo->prepare("UPDATE tours_catalog SET name=?, public_name=?, tour_type=?, duration=?, default_start_time=?, difficulty=?, coordinates=?, description=?, food_options=?, program=?, prices=?, main_image=?, included_text=?, not_included_text=?, faq_text=? WHERE id=?");
-        $stmt->execute([$name, $public_name, $tour_type, $duration, $default_start_time, $difficulty, $coordinates, $description, $food_options, $program, $prices_json, $main_image, $included_json, $not_included_json, $faq_json, $tour_id]);
+        try { $stmt->execute([$name, $public_name, $tour_type, $duration, $default_start_time, $difficulty, $coordinates, $description, $food_options, $program, $prices_json, $main_image, $included_json, $not_included_json, $faq_json, $tour_id]); }
+        catch (Throwable $e) { if ($main_image !== '' && $main_image !== $old_main_image) deleteUploadFile($main_image); throw $e; }
+        if (!empty($old_main_image) && $old_main_image !== $main_image) deleteTourImageIfUnused($pdo, $old_main_image);
 
         $all_guides = $pdo->query("SELECT id, allowed_tours FROM guides")->fetchAll(PDO::FETCH_ASSOC);
         $all_tours = $pdo->query("SELECT id FROM tours_catalog")->fetchAll(PDO::FETCH_COLUMN);

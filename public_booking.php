@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/homepage_helpers.php';
+require_once __DIR__ . '/booking_helpers.php';
+require_once __DIR__ . '/participant_seats.php';
 
 function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
 {
@@ -7,10 +9,10 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
     if (!preg_match('/^[a-f0-9]{64}$/D', $token)) throw new InvalidArgumentException('Обновите форму и повторите отправку.');
     $date = (string)($input['booking_date'] ?? '');
     $name = trim((string)($input['client_name'] ?? ''));
-    $phone = trim((string)($input['phone'] ?? ''));
+    $phone = normalizePhone($input['phone'] ?? '');
     $email = trim((string)($input['email'] ?? ''));
     $seats = filter_var($input['seats'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]);
-    if (!$seats || !validTourDate($date) || $name === '' || !preg_match('/^[0-9]{7,15}$/D', preg_replace('/\D/', '', $phone)) || ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL))) {
+    if (!$seats || !validTourDate($date) || $name === '' || !preg_match('/^[0-9]{7,15}$/D', $phone) || ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL))) {
         throw new InvalidArgumentException('Проверьте дату, имя, телефон, e-mail и количество человек.');
     }
     $pdo->exec('CREATE TABLE IF NOT EXISTS booking_requests (token VARCHAR(64) PRIMARY KEY, participant_id INT NOT NULL)');

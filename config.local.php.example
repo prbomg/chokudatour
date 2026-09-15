@@ -1,0 +1,13 @@
+<?php
+return [
+    'DB_HOST' => 'localhost',
+    'DB_NAME' => 'database_name',
+    'DB_USER' => 'database_user',
+    'DB_PASSWORD' => 'replace_me',
+    'CRON_TOKEN' => 'replace_with_64_random_hex_characters',
+    'ADMIN_EMAIL' => 'admin@example.com',
+    // Used only when the users table is empty.
+    'INITIAL_ADMIN_NAME' => 'Администратор',
+    'INITIAL_ADMIN_EMAIL' => '',
+    'INITIAL_ADMIN_PASSWORD' => '',
+];

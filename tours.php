@@ -4,6 +4,7 @@ error_reporting(E_ALL);
 
 require_once 'auth.php';
 require_once __DIR__ . '/request_helpers.php';
+require_once __DIR__ . '/file_storage.php';
 
 if ($current_user_role !== 'admin') {
     http_response_code(403);
@@ -28,7 +29,8 @@ $columns = [
     'program' => 'TEXT DEFAULT NULL', 'main_image' => 'VARCHAR(255) DEFAULT NULL',
     'prices' => 'TEXT DEFAULT NULL', 'description' => 'TEXT DEFAULT NULL',
     'default_start_time' => "VARCHAR(50) DEFAULT '10:00'",
-    'is_archived' => "TINYINT(1) DEFAULT 0" // НОВАЯ КОЛОНКА ДЛЯ АРХИВА
+    'is_archived' => "TINYINT(1) DEFAULT 0", 'difficulty' => "VARCHAR(255) DEFAULT 'Легкая'",
+    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'", 'images' => 'TEXT DEFAULT NULL'
 ];
 foreach ($columns as $col => $type) {
     try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN $col $type"); } catch(PDOException $e) {}
@@ -51,25 +53,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duplicate_tour'])) {
 
     if ($tour) {
         $newName = $tour['name'] . ' (Копия)';
-        
-        $pdo->prepare("INSERT INTO tours_catalog 
-            (name, public_name, duration, default_start_time, coordinates, sort_order, description, food_options, program, prices, main_image, included_text, not_included_text, faq_text) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        ->execute([
-            $newName, 
-            $tour['public_name'] ?? '', $tour['duration'] ?? '', $tour['default_start_time'] ?? '10:00', $tour['coordinates'] ?? '', $tour['sort_order'] ?? 0, 
-            $tour['description'] ?? '', $tour['food_options'] ?? '', $tour['program'] ?? '', 
-            $tour['prices'] ?? '', $tour['main_image'] ?? '', $tour['included_text'] ?? '', $tour['not_included_text'] ?? '', $tour['faq_text'] ?? ''
-        ]);
-        
-        $new_tour_id = $pdo->lastInsertId();
-
-        // Копируем модули
-        $stmt_mod = $pdo->prepare("SELECT * FROM tour_modules WHERE tour_id = ?");
-        $stmt_mod->execute([$id_to_copy]);
-        foreach($stmt_mod->fetchAll(PDO::FETCH_ASSOC) as $m) {
-            $pdo->prepare("INSERT INTO tour_modules (tour_id, title, timing, content, image_path, sort_order) VALUES (?, ?, ?, ?, ?, ?)")
-                ->execute([$new_tour_id, $m['title'], $m['timing'], $m['content'], $m['image_path'], $m['sort_order']]);
+        $createdFiles = [];
+        $pdo->beginTransaction();
+        try {
+            $mainImageSource = (string)($tour['main_image'] ?? '');
+            $mainImage = duplicateTourImage($mainImageSource, 'tour_copy');
+            if ($mainImage !== '' && $mainImage !== $mainImageSource) $createdFiles[] = $mainImage;
+            $gallery = [];
+            foreach (json_decode((string)($tour['images'] ?? ''), true) ?: [] as $image) {
+                $copy = duplicateTourImage((string)$image, 'tour_gallery_copy');
+                if ($copy !== '') { $gallery[] = $copy; if ($copy !== (string)$image) $createdFiles[] = $copy; }
+            }
+            $pdo->prepare("INSERT INTO tours_catalog
+                (name, public_name, tour_type, duration, default_start_time, difficulty, coordinates, sort_order, description, food_options, program, prices, main_image, images, included_text, not_included_text, faq_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")->execute([
+                $newName, $tour['public_name'] ?? '', $tour['tour_type'] ?? 'Индивидуальная', $tour['duration'] ?? '', $tour['default_start_time'] ?? '10:00',
+                $tour['difficulty'] ?? 'Легкая', $tour['coordinates'] ?? '', $tour['sort_order'] ?? 0, $tour['description'] ?? '', $tour['food_options'] ?? '',
+                $tour['program'] ?? '', $tour['prices'] ?? '', $mainImage, json_encode($gallery, JSON_UNESCAPED_UNICODE),
+                $tour['included_text'] ?? '', $tour['not_included_text'] ?? '', $tour['faq_text'] ?? ''
+            ]);
+            $new_tour_id = (int)$pdo->lastInsertId();
+            $stmt_mod = $pdo->prepare('SELECT * FROM tour_modules WHERE tour_id = ?'); $stmt_mod->execute([$id_to_copy]);
+            foreach ($stmt_mod->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                $moduleImageSource = (string)($m['image_path'] ?? '');
+                $moduleImage = duplicateTourImage($moduleImageSource, 'module_copy');
+                if ($moduleImage !== '' && $moduleImage !== $moduleImageSource) $createdFiles[] = $moduleImage;
+                $pdo->prepare('INSERT INTO tour_modules (tour_id, title, timing, content, image_path, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
+                    ->execute([$new_tour_id, $m['title'], $m['timing'], $m['content'], $moduleImage, $m['sort_order']]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            foreach ($createdFiles as $file) deleteUploadFile($file);
+            throw $e;
         }
 
         header("Location: tours.php?msg=tour_duplicated"); exit;
@@ -99,8 +115,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_tour'])) {
     if ($check->fetchColumn() > 0) {
         header("Location: tours.php?show_archive=1&msg=cannot_delete"); exit;
     } else {
-        $pdo->prepare("DELETE FROM tours_catalog WHERE id = ?")->execute([$id]);
-        $pdo->prepare("DELETE FROM tour_modules WHERE tour_id = ?")->execute([$id]);
+        $stmt = $pdo->prepare('SELECT main_image,images FROM tours_catalog WHERE id=?'); $stmt->execute([$id]); $storedTour = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $stmt = $pdo->prepare('SELECT image_path FROM tour_modules WHERE tour_id=?'); $stmt->execute([$id]);
+        $storedFiles = array_merge([(string)($storedTour['main_image'] ?? '')], json_decode((string)($storedTour['images'] ?? ''), true) ?: [], $stmt->fetchAll(PDO::FETCH_COLUMN));
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('DELETE FROM tour_modules WHERE tour_id=?')->execute([$id]);
+            $pdo->prepare('DELETE FROM tours_catalog WHERE id=?')->execute([$id]);
+            $pdo->commit();
+        } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
+        foreach ($storedFiles as $file) deleteTourImageIfUnused($pdo, (string)$file);
         header("Location: tours.php?show_archive=1&msg=tour_deleted"); exit;
     }
 }

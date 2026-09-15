@@ -1,1 +1,3 @@
 /tests/node_modules/
+/config.local.php
+/.env

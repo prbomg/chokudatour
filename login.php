@@ -1,7 +1,8 @@
 <?php
-session_start();
+require_once __DIR__ . '/session_bootstrap.php';
+require_once __DIR__ . '/auth_helpers.php';
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 
 // Подключаем базу данных
 if (file_exists('db.php')) {
@@ -15,32 +16,43 @@ if (isset($_SESSION['user_id'])) {
 }
 
 $error = '';
+$pdo->exec('CREATE TABLE IF NOT EXISTS login_attempts (id INT AUTO_INCREMENT PRIMARY KEY, attempt_key CHAR(64) NOT NULL, attempted_at DATETIME NOT NULL, INDEX attempt_key_idx (attempt_key))');
+$pdo->exec('DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)');
 
 // Обработка формы входа
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
-    $password = trim($_POST['password'] ?? '');
+    $password = (string)($_POST['password'] ?? '');
     $remember = isset($_POST['remember']);
+    $attemptKey = hash('sha256', mb_strtolower($email) . '|' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+    $attemptStmt = $pdo->prepare('SELECT COUNT(*) FROM login_attempts WHERE attempt_key=?'); $attemptStmt->execute([$attemptKey]);
+    $tooManyAttempts = (int)$attemptStmt->fetchColumn() >= 5;
 
-    if (!empty($email) && !empty($password)) {
+    if ($tooManyAttempts) {
+        $error = 'Слишком много попыток входа. Повторите через 15 минут.';
+    } elseif (!empty($email) && !empty($password)) {
         if (isset($pdo)) {
             $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
             $stmt->execute([$email]);
             $user = $stmt->fetch();
 
             if ($user && password_verify($password, $user['password'])) {
+                $pdo->prepare('DELETE FROM login_attempts WHERE attempt_key=?')->execute([$attemptKey]);
+                session_regenerate_id(true);
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['user_name'] = $user['name'];
                 $_SESSION['user_role'] = $user['role'];
 
                 if ($remember) {
-                    // Сохраняем куки на 30 дней
-                    setcookie('crm_remember', $user['id'], time() + (86400 * 30), "/");
+                    issueRememberToken($pdo, (int)$user['id']);
+                } else {
+                    clearRememberToken($pdo);
                 }
 
                 header("Location: index.php");
                 exit;
             } else {
+                $pdo->prepare('INSERT INTO login_attempts (attempt_key, attempted_at) VALUES (?, NOW())')->execute([$attemptKey]);
                 $error = 'Неверный E-mail или пароль';
             }
         } else {
@@ -50,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Заполните все поля';
     }
 }
+if (isset($_COOKIE['crm_remember'])) setcookie('crm_remember', '', rememberCookieOptions(time() - 3600));
 ?>
 <!DOCTYPE html>
 <html lang="ru">

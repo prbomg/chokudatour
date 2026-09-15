@@ -8,7 +8,7 @@ require_once 'db.php';
 // Проверяем / создаем секретный токен для Админа
 $admin_token = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'admin_sync_token'")->fetchColumn();
 if (!$admin_token) {
-    $admin_token = substr(md5(uniqid(rand(), true)), 0, 20);
+    $admin_token = bin2hex(random_bytes(24));
     $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES ('admin_sync_token', ?)")->execute([$admin_token]);
 }
 
@@ -17,7 +17,7 @@ if (empty($token)) {
     die('Токен не указан');
 }
 
-$is_admin = ($token === $admin_token);
+$is_admin = hash_equals((string)$admin_token, (string)$token);
 $guide_name = '';
 
 if (!$is_admin) {

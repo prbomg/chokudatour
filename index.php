@@ -1,10 +1,11 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 
 require_once 'auth.php';
 require_once __DIR__ . '/homepage_helpers.php';
 require_once __DIR__ . '/request_helpers.php';
+require_once __DIR__ . '/expense_helpers.php';
 $filter_error = '';
 try { $home_filters = homeFilters($_GET); } catch (InvalidArgumentException $e) { $home_filters = []; $filter_error = $e->getMessage(); }
 $home_url = homeUrl($home_filters);
@@ -38,13 +39,7 @@ try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN default_start_time VARCHA
 // Изменение выездов: проверки и запись выполняются до уведомления.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_event']) && $current_user_role === 'admin') {
     $del_id = (int)$_POST['delete_event'];
-    $pdo->beginTransaction();
-    try {
-        $pdo->prepare("DELETE FROM expenses WHERE event_id = ?")->execute([$del_id]);
-        $pdo->prepare("DELETE FROM participants WHERE event_id = ?")->execute([$del_id]);
-        $pdo->prepare("DELETE FROM events WHERE id = ?")->execute([$del_id]);
-        $pdo->commit();
-    } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
+    deleteEventWithFiles($pdo, $del_id);
     header("Location: " . $return_url); exit;
 }
 
@@ -229,22 +224,8 @@ try {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_expense'])) {
     $event_id = (int)$_POST['event_id'];
     requireEventAccess($pdo, $event_id, $current_user_role, $current_user_name);
-    $amount = (int)($_POST['amount'] ?? 0);
-    if ($amount < 1) { http_response_code(422); exit('Укажите положительную сумму расхода.'); }
-    $category = trim($_POST['category'] ?? 'Прочее');
-    $description = trim($_POST['description'] ?? '');
-    $receipt_path = '';
-
-    if (isset($_FILES['receipt']) && $_FILES['receipt']['error'] === UPLOAD_ERR_OK) {
-        $ext = strtolower(pathinfo($_FILES['receipt']['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
-            if (!is_dir('uploads')) mkdir('uploads', 0777, true);
-            $new_name = 'uploads/rec_' . time() . '_' . rand(100,999) . '.' . $ext;
-            if (move_uploaded_file($_FILES['receipt']['tmp_name'], $new_name)) { $receipt_path = $new_name; }
-        }
-    }
-
-    $pdo->prepare("INSERT INTO expenses (event_id, amount, category, description, receipt_path) VALUES (?, ?, ?, ?, ?)")->execute([$event_id, $amount, $category, $description, $receipt_path]);
+    try { addExpense($pdo, $event_id, $_POST, $_FILES); }
+    catch (InvalidArgumentException $e) { http_response_code(422); exit(htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8')); }
     header("Location: " . $return_url . (strpos($return_url, "?") === false ? "?" : "&") . "msg=expense_added"); exit;
 }
 

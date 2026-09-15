@@ -1,6 +1,6 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 
 require_once 'auth.php';
 require_once __DIR__ . '/request_helpers.php';
@@ -69,6 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_staff'])) {
         }
         
         // 2. Если указан Email и Пароль (или если это админ), создаем аккаунт для входа
+        if ($email !== '' && strlen($password_raw) < 10) {
+            header('Location: settings.php?msg=weak_password'); exit;
+        }
         if ($email !== '' && $password_raw !== '') {
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE email = ?");
             $stmt->execute([$email]);
@@ -103,7 +106,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_user'])) {
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
     $uid = (int)$_POST['user_id']; $new_password = trim($_POST['new_password']);
-    if ($new_password !== '') { $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([password_hash($new_password, PASSWORD_DEFAULT), $uid]); }
+    if (strlen($new_password) < 10) { header('Location: settings.php?msg=weak_password'); exit; }
+    $pdo->prepare("UPDATE users SET password=?, remember_token=NULL WHERE id=?")->execute([password_hash($new_password, PASSWORD_DEFAULT), $uid]);
     header("Location: settings.php?msg=pass_changed"); exit;
 }
 
@@ -133,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_source'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_telegram'])) {
     $tg_bot = trim($_POST['tg_bot'] ?? '');
     $tg_chat = trim($_POST['tg_chat'] ?? '');
-    $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES ('tg_bot', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$tg_bot, $tg_bot]);
+    if ($tg_bot !== '') $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES ('tg_bot', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$tg_bot, $tg_bot]);
     $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES ('tg_chat', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$tg_chat, $tg_chat]);
     header("Location: settings.php?msg=tg_saved"); exit;
 }
@@ -471,7 +475,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
                 <input type="hidden" name="save_telegram" value="1">
                 <div class="form-group">
                     <label>Токен бота (из BotFather)</label>
-                    <input type="text" name="tg_bot" class="t-input" placeholder="123456:ABC-DEF..." value="<?= htmlspecialchars($tg_bot) ?>">
+                    <input type="password" name="tg_bot" class="t-input" placeholder="<?= $tg_bot !== '' ? 'Токен сохранён — оставьте пустым без изменений' : '123456:ABC-DEF...' ?>" value="" autocomplete="new-password">
                 </div>
                 <div class="form-group">
                     <label>ID Чата / Группы</label>
@@ -585,6 +589,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
             const messages = {
                 'staff_added': 'Сотрудник успешно добавлен!',
                 'error_admin_creds': 'Для админа Email и Пароль обязательны!',
+                'weak_password': 'Пароль должен содержать не менее 10 символов.',
                 'phone_saved': 'Телефон гида сохранен!',
                 'guide_deleted': 'Гид удален из справочника',
                 'cat_added': 'Категория добавлена!',

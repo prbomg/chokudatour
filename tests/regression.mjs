@@ -116,6 +116,9 @@ try {
   assert.ok(clientList.html.includes('13 500 ₽'));
   assert.ok(clientList.html.includes('return_to=clients.php'));
   checks++;
+  const normalizedClientList = await page('clients.php', {}, {}, false, {setup:["UPDATE participants SET phone='+7 (999) 123-45-67' WHERE id=1"]});
+  assert.equal(normalizedClientList.data.participants[0].phone, '79991234567');
+  checks++;
   const filteredClientList = await page('clients.php', {search:'Тестовый',tour_id:1});
   assert.ok(filteredClientList.html.includes('Тестовый турист'));
   assert.ok(filteredClientList.html.includes('return_to=clients.php%3Fsearch%3D'));
@@ -145,6 +148,18 @@ try {
   checks++;
   const decimalExpense = await page('event.php', {id:1}, {add_expense:1,amount:'12.34',category:'Прочее',description:'Копейки'});
   assert.equal(Number(decimalExpense.data.expenses.at(-1).amount), 12.34);
+  checks++;
+  const homepageDecimalExpense = await page('index.php', {}, {add_expense:1,event_id:1,amount:'19,95',category:'Прочее',description:'Копейки с главной'});
+  assert.equal(Number(homepageDecimalExpense.data.expenses.at(-1).amount), 19.95);
+  checks++;
+  const invalidParticipantEdit = await page('participants.php', {}, {update_participant:1,participant_id:1,client_name:'Тест',phone:'abc',email:'',seats:1,price:0,source:'CRM',status:'Бронь',notes:''});
+  assert.equal(invalidParticipantEdit.status, 422);
+  assert.equal(invalidParticipantEdit.data.participants[0].client_name, 'Тестовый турист с длинной фамилией');
+  assert.ok(invalidParticipantEdit.html.includes('корректный телефон'));
+  checks++;
+  const normalizedParticipant = await page('event.php', {id:1}, {add_participant:1,client_name:'Телефон',phone:'+7 (999) 123-45-67',email:'',seats:1,price:0,source:'CRM',status:'Оплата на месте',notes:''});
+  assert.equal(normalizedParticipant.data.participants.at(-1).phone, '79991234567');
+  assert.equal(normalizedParticipant.data.participants.at(-1).status, 'Оплата на месте');
   checks++;
   const calendar = await page('schedule.php', {ym:'2026-09'});
   assert.equal(Number(calendar.data.events_raw.find(e => e.id === 1).seats_count), 3);

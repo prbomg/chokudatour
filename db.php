@@ -1,8 +1,10 @@
 <?php
-$host = 'localhost';
-$db   = 'cc47946_devcrm';
-$user = 'cc47946_devcrm';
-$pass = '146580Serg!';
+require_once __DIR__ . '/app_config.php';
+$config = appConfig();
+$host = requiredConfig($config, 'DB_HOST');
+$db   = requiredConfig($config, 'DB_NAME');
+$user = requiredConfig($config, 'DB_USER');
+$pass = requiredConfig($config, 'DB_PASSWORD');
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
@@ -37,10 +39,16 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS users (
 // Безопасное добавление полей сброса для старой таблицы users, если она уже существовала
 try { $pdo->exec("ALTER TABLE users ADD COLUMN reset_token VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE users ADD COLUMN reset_expires DATETIME DEFAULT NULL"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE users ADD COLUMN remember_token VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
 
 if ($pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() == 0) {
-    $hash = password_hash('admin123', PASSWORD_DEFAULT);
-    $pdo->exec("INSERT INTO users (name, email, password, role) VALUES ('Главный Админ', 'admin@site.ru', '$hash', 'admin')");
+    $initialEmail = trim($config['INITIAL_ADMIN_EMAIL']);
+    $initialPassword = (string)$config['INITIAL_ADMIN_PASSWORD'];
+    if ($initialEmail !== '' && $initialPassword !== '') {
+        $hash = password_hash($initialPassword, PASSWORD_DEFAULT);
+        $pdo->prepare("INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, 'admin')")
+            ->execute([$config['INITIAL_ADMIN_NAME'], $initialEmail, $hash]);
+    }
 }
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS expenses (
@@ -50,10 +58,19 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS expenses (
     amount DECIMAL(10,2) NOT NULL,
     description TEXT
 )");
+try { $pdo->exec("ALTER TABLE expenses ADD COLUMN receipt_path VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE expenses ADD COLUMN category VARCHAR(100) DEFAULT 'Прочее'"); } catch (Exception $e) {}
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS statuses (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL, sort_order INT DEFAULT 0)");
 if ($pdo->query("SELECT COUNT(*) FROM statuses")->fetchColumn() == 0) {
-    $pdo->exec("INSERT INTO statuses (name, sort_order) VALUES ('Бронь', 1), ('Предоплата', 2), ('Оплачено', 3), ('Отмена', 4)");
+    $pdo->exec("INSERT INTO statuses (name, sort_order) VALUES ('Бронь', 1), ('Предоплата', 2), ('Оплачено', 3), ('Оплата на месте', 4), ('Отмена', 5)");
+}
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM statuses WHERE name=?'); $stmt->execute(['Оплата на месте']);
+if (!$stmt->fetchColumn()) $pdo->prepare('INSERT INTO statuses (name, sort_order) VALUES (?, ?)')->execute(['Оплата на месте', 4]);
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS booking_sources (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, sort_order INT DEFAULT 999)");
+if ($pdo->query('SELECT COUNT(*) FROM booking_sources')->fetchColumn() == 0) {
+    $pdo->exec("INSERT INTO booking_sources (name, sort_order) VALUES ('Прямые',1),('Трипстер',2),('Спутник 8',3),('CRM',4),('Сайт',5)");
 }
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS expense_categories (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL, sort_order INT DEFAULT 0)");

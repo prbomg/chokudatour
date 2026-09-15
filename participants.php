@@ -1,6 +1,6 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 
 require_once 'auth.php';
 require_once __DIR__ . '/request_helpers.php';
@@ -14,26 +14,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['ajax_load_past_part
     }
 }
 require_once __DIR__ . '/participant_seats.php';
+require_once __DIR__ . '/booking_helpers.php';
+$page_error = '';
 
 // --- РЕДАКТИРОВАНИЕ УЧАСТНИКА ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])) {
-    $p_id = (int)$_POST['participant_id'];
-    $client_name = trim($_POST['client_name'] ?? '');
-    $phone = trim($_POST['phone'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $seats = max(1, (int)($_POST['seats'] ?? 1));
-    $seat_binding = participantSeatBinding($pdo, $seats);
-    $price = (int)($_POST['price'] ?? 0);
-    $source = trim($_POST['source'] ?? 'CRM');
-    $status = trim($_POST['status'] ?? 'Бронь');
-    $notes = trim($_POST['notes'] ?? '');
-
-    $pdo->prepare("UPDATE participants SET client_name=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=?")
-        ->execute(array_merge([$client_name, $phone, $email], $seat_binding['values'], [$price, $source, $status, $notes, $p_id]));
-    
-    // Редирект с сохранением GET-параметров поиска
-    $qs = preg_replace('/&?msg=[^&]*/', '', $_SERVER['QUERY_STRING']);
-    header("Location: participants.php?" . $qs . ($qs ? '&' : '') . "msg=updated"); exit;
+    try {
+        $p_id = (int)$_POST['participant_id'];
+        $data = bookingParticipantInput($pdo, $_POST);
+        $seat_binding = participantSeatBinding($pdo, $data['seats']);
+        $pdo->prepare("UPDATE participants SET client_name=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=?")
+            ->execute(array_merge([$data['name'], $data['phone'], $data['email']], $seat_binding['values'], [$data['price'], $data['source'], $data['status'], $data['notes'], $p_id]));
+        $qs = preg_replace('/&?msg=[^&]*/', '', $_SERVER['QUERY_STRING']);
+        header("Location: participants.php?" . $qs . ($qs ? '&' : '') . "msg=updated"); exit;
+    } catch (InvalidArgumentException $e) { http_response_code(422); $page_error = $e->getMessage(); }
 }
 
 // --- УДАЛЕНИЕ УЧАСТНИКА ---
@@ -142,6 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
             $st_br = ($p['status'] ?? '') === 'Бронь' ? 'selected' : '';
             $st_pr = ($p['status'] ?? '') === 'Предоплата' ? 'selected' : '';
             $st_op = ($p['status'] ?? '') === 'Оплачено' ? 'selected' : '';
+            $st_cash = ($p['status'] ?? '') === 'Оплата на месте' ? 'selected' : '';
             $st_ot = ($p['status'] ?? '') === 'Отмена' ? 'selected' : '';
 
             $html .= "
@@ -161,7 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
                 </td>
                 <td>
                     <select form='formEditP_{$p_id}' name='status' class='t-input'>
-                        <option value='Бронь' {$st_br}>Бронь</option><option value='Предоплата' {$st_pr}>Предоплата</option><option value='Оплачено' {$st_op}>Оплачено</option><option value='Отмена' {$st_ot}>Отмена</option>
+                        <option value='Бронь' {$st_br}>Бронь</option><option value='Предоплата' {$st_pr}>Предоплата</option><option value='Оплачено' {$st_op}>Оплачено</option><option value='Оплата на месте' {$st_cash}>Оплата на месте</option><option value='Отмена' {$st_ot}>Отмена</option>
                     </select>
                 </td>
                 <td><input form='formEditP_{$p_id}' type='text' name='notes' class='t-input' value='".htmlspecialchars($p['notes'] ?? '')."'></td>
@@ -357,6 +352,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         .status-<?php echo md5('Бронь'); ?> { background: #FEF3C7; color: #B45309; }
         .status-<?php echo md5('Предоплата'); ?> { background: #DBEAFE; color: #1D4ED8; }
         .status-<?php echo md5('Оплачено'); ?> { background: #D1FAE5; color: #047857; }
+        .status-<?php echo md5('Оплата на месте'); ?> { background: #EDE9FE; color: #6D28D9; }
         .status-<?php echo md5('Отмена'); ?> { background: #FEE2E2; color: #B91C1C; text-decoration: line-through; }
 
         /* Кнопки действий */
@@ -421,6 +417,8 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
 <div class="container">
     <?php include 'navbar.php'; ?>
 
+    <?php if ($page_error !== ''): ?><div style="margin:16px 0;padding:12px 16px;border:1px solid #FCA5A5;border-radius:10px;background:#FEF2F2;color:#B91C1C;"><?= htmlspecialchars($page_error) ?></div><?php endif; ?>
+
     <div class="header-box">
         <h2>База туристов (CRM)</h2>
     </div>
@@ -463,6 +461,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                 <option value="Бронь" <?= $status_filter === 'Бронь' ? 'selected' : '' ?>>Бронь</option>
                 <option value="Предоплата" <?= $status_filter === 'Предоплата' ? 'selected' : '' ?>>Предоплата</option>
                 <option value="Оплачено" <?= $status_filter === 'Оплачено' ? 'selected' : '' ?>>Оплачено</option>
+                <option value="Оплата на месте" <?= $status_filter === 'Оплата на месте' ? 'selected' : '' ?>>Оплата на месте</option>
                 <option value="Отмена" <?= $status_filter === 'Отмена' ? 'selected' : '' ?>>Отмена</option>
             </select>
         </div>
@@ -603,6 +602,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                                 <option value="Бронь" <?= ($p['status'] ?? '') === 'Бронь' ? 'selected' : '' ?>>Бронь</option>
                                 <option value="Предоплата" <?= ($p['status'] ?? '') === 'Предоплата' ? 'selected' : '' ?>>Предоплата</option>
                                 <option value="Оплачено" <?= ($p['status'] ?? '') === 'Оплачено' ? 'selected' : '' ?>>Оплачено</option>
+                                <option value="Оплата на месте" <?= ($p['status'] ?? '') === 'Оплата на месте' ? 'selected' : '' ?>>Оплата на месте</option>
                                 <option value="Отмена" <?= ($p['status'] ?? '') === 'Отмена' ? 'selected' : '' ?>>Отмена</option>
                             </select>
                         </td>

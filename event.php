@@ -1,11 +1,13 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 
 require_once 'auth.php';
 require_once __DIR__ . '/homepage_helpers.php';
 require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/participant_seats.php';
+require_once __DIR__ . '/booking_helpers.php';
+require_once __DIR__ . '/expense_helpers.php';
 
 $return_url = homeReturnUrl($_GET['return_to'] ?? 'index.php');
 $return_suffix = '&return_to=' . rawurlencode($return_url);
@@ -26,32 +28,6 @@ if (!in_array('price', $part_cols, true)) {
 $pdo->exec('CREATE TABLE IF NOT EXISTS booking_sources (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, sort_order INT DEFAULT 999)');
 if ((int)$pdo->query('SELECT COUNT(*) FROM booking_sources')->fetchColumn() === 0) {
     $pdo->exec("INSERT INTO booking_sources (name, sort_order) VALUES ('Прямые',1),('Трипстер',2),('Спутник 8',3),('CRM',4),('Сайт',5)");
-}
-
-function eventStatuses(): array
-{
-    return ['Бронь', 'Предоплата', 'Оплачено', 'Оплата на месте', 'Отмена'];
-}
-
-function eventParticipantInput(PDO $pdo, array $input): array
-{
-    $name = trim((string)($input['client_name'] ?? ''));
-    $phone = trim((string)($input['phone'] ?? ''));
-    $email = trim((string)($input['email'] ?? ''));
-    $seatsRaw = (string)($input['seats'] ?? '');
-    $priceRaw = (string)($input['price'] ?? '0');
-    $source = trim((string)($input['source'] ?? 'CRM'));
-    $status = trim((string)($input['status'] ?? 'Бронь'));
-    if ($name === '') throw new InvalidArgumentException('Укажите имя туриста.');
-    if (strlen(preg_replace('/\D+/', '', $phone)) < 5) throw new InvalidArgumentException('Укажите корректный телефон.');
-    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Укажите корректный e-mail.');
-    if (!ctype_digit($seatsRaw) || (int)$seatsRaw < 1) throw new InvalidArgumentException('Количество мест должно быть целым положительным числом.');
-    if (!preg_match('/^\d+$/D', $priceRaw)) throw new InvalidArgumentException('Сумма бронирования должна быть целым неотрицательным числом.');
-    $stmt = $pdo->prepare('SELECT COUNT(*) FROM booking_sources WHERE name=?');
-    $stmt->execute([$source]);
-    if (!$stmt->fetchColumn()) throw new InvalidArgumentException('Выберите источник из списка.');
-    if (!in_array($status, eventStatuses(), true)) throw new InvalidArgumentException('Выберите статус из списка.');
-    return ['name'=>$name, 'phone'=>$phone, 'email'=>$email, 'seats'=>(int)$seatsRaw, 'price'=>(int)$priceRaw, 'source'=>$source, 'status'=>$status, 'notes'=>trim((string)($input['notes'] ?? ''))];
 }
 
 function eventMoney($amount): string
@@ -105,27 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare('DELETE FROM participants WHERE id=? AND event_id=?')->execute([(int)$_POST['del_participant'], $event_id]);
             eventRedirect($event_id, $return_suffix, 'participant_deleted');
         } elseif (isset($_POST['add_expense'])) {
-            $amountRaw = str_replace(',', '.', trim((string)($_POST['amount'] ?? '')));
-            $category = trim((string)($_POST['category'] ?? 'Прочее'));
-            $description = trim((string)($_POST['description'] ?? ''));
-            if (!is_numeric($amountRaw) || (float)$amountRaw <= 0 || (float)$amountRaw > 99999999.99) throw new InvalidArgumentException('Укажите положительную сумму расхода.');
-            $stmt = $pdo->prepare('SELECT COUNT(*) FROM expense_categories WHERE name=?');
-            $stmt->execute([$category]);
-            if ($category !== 'Прочее' && !$stmt->fetchColumn()) throw new InvalidArgumentException('Выберите категорию расхода из списка.');
-            $receipt_path = '';
-            if (isset($_FILES['receipt']) && ($_FILES['receipt']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-                if ($_FILES['receipt']['error'] !== UPLOAD_ERR_OK || ($_FILES['receipt']['size'] ?? 0) > 8 * 1024 * 1024) throw new InvalidArgumentException('Не удалось загрузить чек или файл больше 8 МБ.');
-                $ext = strtolower(pathinfo((string)$_FILES['receipt']['name'], PATHINFO_EXTENSION));
-                if (!in_array($ext, ['jpg','jpeg','png','webp'], true)) throw new InvalidArgumentException('Чек должен быть изображением JPG, PNG или WebP.');
-                if (!is_dir('uploads') && !mkdir('uploads', 0755, true)) throw new RuntimeException('Не удалось подготовить папку для чеков.');
-                $receipt_path = 'uploads/rec_' . bin2hex(random_bytes(8)) . '.' . $ext;
-                if (!move_uploaded_file($_FILES['receipt']['tmp_name'], $receipt_path)) throw new RuntimeException('Не удалось сохранить чек.');
-            }
-            $pdo->prepare('INSERT INTO expenses (event_id, amount, category, description, receipt_path) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$event_id, number_format((float)$amountRaw, 2, '.', ''), $category, $description, $receipt_path]);
+            addExpense($pdo, $event_id, $_POST, $_FILES);
             eventRedirect($event_id, $return_suffix, 'expense_added');
         } elseif (isset($_POST['del_expense'])) {
-            $pdo->prepare('DELETE FROM expenses WHERE id=? AND event_id=?')->execute([(int)$_POST['del_expense'], $event_id]);
+            deleteExpense($pdo, $event_id, (int)$_POST['del_expense']);
             eventRedirect($event_id, $return_suffix, 'expense_deleted');
         }
     } catch (InvalidArgumentException $e) {
