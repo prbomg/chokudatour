@@ -63,7 +63,7 @@
         const response=await fetch(eventUrl(id));
         if (!response.ok || response.redirected) throw new Error('Не удалось открыть выезд. Обновите страницу и повторите попытку.');
         const doc=new DOMParser().parseFromString(await response.text(),'text/html');
-        if (!doc.getElementById('formAddParticipant')) throw new Error('Сессия закончилась. Обновите страницу.');
+        if (!doc.getElementById('participantForm')) throw new Error('Не удалось загрузить данные выезда. Обновите страницу.');
         return doc;
     }
     async function addTourist(id) {
@@ -72,7 +72,7 @@
             const doc=await getEvent(id); if (!modal.isConnected) return;
             message.remove();
             const form=element('form'); form.method='POST'; form.action=eventUrl(id).href;
-            const original=doc.getElementById('formAddParticipant');
+            const original=doc.getElementById('participantForm');
             controls([...original.elements],form,'quickTourist');
             const error=errorBox(form); buttons(form,modal,'Добавить туриста'); modal.append(form);
             form.addEventListener('submit',async event=>{
@@ -98,27 +98,33 @@
             body.append(element('h3','',row.querySelector('.link-tour').textContent));
             body.append(element('p','panel-meta',row.cells[0].innerText+' · '+row.cells[2].innerText));
             const note=row.querySelector('[data-note]'); if (note) body.append(element('p','panel-note',note.dataset.note));
-            const overview=doc.querySelector('.dash-grid'); if (overview) body.append(overview.cloneNode(true));
-            // Read the same rendered bookings/expenses as the full card. No
-            // second endpoint or separate calculation of financial amounts.
-            for (const [index,title] of ['Туристы','Расходы'].entries()) {
-                const section=element('section','panel-section'); section.append(element('h3','',title));
-                const sourceTable=doc.querySelectorAll('table')[index];
-                const rows=index===0
-                    ? sourceTable?.querySelectorAll('tbody tr[class^="view_p_"]') || []
-                    : [...(sourceTable?.querySelectorAll('tbody tr') || [])].filter(row=>!row.classList.contains('add-form-row'));
+            const overview=element('div','dash-grid');
+            for (const metric of doc.querySelectorAll('.metrics .metric')) {
+                const card=element('div','dash-card');
+                card.append(element('div','dash-label',metric.querySelector('span')?.textContent.trim() || ''));
+                card.append(element('div','dash-val',metric.querySelector('strong')?.textContent.trim() || '—'));
+                const detail=metric.querySelector('small')?.textContent.trim(); if(detail) card.append(element('div','panel-metric-detail',detail));
+                overview.append(card);
+            }
+            if (overview.children.length) body.append(overview);
+            const groups = [
+                {title:'Туристы', selector:'.participant-row', fields:[['Турист','.participant-name'],['Контакты','.participant-contacts'],['Бронирование','.booking-summary'],['Статус','.status'],['Примечание','.participant-note']]},
+                {title:'Расходы', selector:'.expense-row', fields:[['Категория','strong:first-child'],['Описание','.expense-description'],['Чек','.receipt-link'],['Сумма','.expense-amount']]}
+            ];
+            for (const group of groups) {
+                const section=element('section','panel-section'); section.append(element('h3','',group.title));
                 let count=0;
-                for (const item of rows) {
-                    if (!item.cells.length) continue;
+                for (const item of doc.querySelectorAll(group.selector)) {
                     const card=element('div','panel-record');
-                    const headers=[...sourceTable.querySelectorAll('thead th')].map(th=>th.textContent.trim());
-                    [...item.cells].slice(0,-1).forEach((cell,i)=>{
-                        const line=element('div','panel-field'); line.append(element('span','',headers[i] || ''));
-                        const link=cell.querySelector('a[href]');
+                    for (const [label,selector] of group.fields) {
+                        const source=item.querySelector(selector); if(!source) continue;
+                        const line=element('div','panel-field'); line.append(element('span','',label));
+                        const link=source.matches('a[href]') ? source : source.querySelector('a[href]');
                         if(link) { const a=element('a','',link.textContent.trim() || 'Открыть чек'); a.href=new URL(link.getAttribute('href'),eventUrl(id)); if (a.href.includes('client.php')) { const u=new URL(a.href); u.searchParams.set('return_to',window.homePageConfig.url); a.href=u; } line.append(a); }
-                        else line.append(element('div','',cell.textContent.trim() || '—'));
+                        else line.append(element('div','',source.textContent.trim() || '—'));
                         card.append(line);
-                    }); section.append(card); count++;
+                    }
+                    section.append(card); count++;
                 }
                 if (!count) section.append(element('p','','Пока нет записей')); body.append(section);
             }

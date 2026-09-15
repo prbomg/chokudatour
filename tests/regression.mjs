@@ -19,6 +19,10 @@ try {
     echo 'OK';` });
   assert.equal(lint.text, 'OK', 'PHP syntax check');
   checks++;
+  const homepageActions = await readFile(new URL('../assets/homepage-actions.js', import.meta.url), 'utf8');
+  assert.ok(homepageActions.includes("getElementById('participantForm')"));
+  assert.ok(!homepageActions.includes("getElementById('formAddParticipant')"));
+  checks++;
   php.writeFile('/app/fixture.php', await readFile(new URL('fixture.php', import.meta.url)));
   php.writeFile('/app/auth.php', "<?php require_once __DIR__ . '/fixture.php';");
   php.writeFile('/app/db.php', "<?php require_once __DIR__ . '/fixture.php';");
