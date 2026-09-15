@@ -12,6 +12,8 @@ class FixturePDO extends PDO
         $this->sqliteCreateFunction('CONCAT', fn(...$values) => implode('', $values));
         $this->sqliteCreateFunction('MONTH', fn($date) => (int)substr($date, 5, 2), 1);
         $this->sqliteCreateFunction('YEAR', fn($date) => (int)substr($date, 0, 4), 1);
+        $this->sqliteCreateFunction('RAND', fn() => 0.5, 0);
+        $this->sqliteCreateFunction('MD5', fn($value) => md5((string)$value), 1);
         if ($existing) return;
         $this->exec("CREATE TABLE tours_catalog (id INTEGER PRIMARY KEY, name TEXT, public_name TEXT, sort_order INT DEFAULT 0, default_start_time TEXT, tour_type TEXT, prices TEXT, is_archived INT DEFAULT 0, duration TEXT, coordinates TEXT)");
         $this->exec("CREATE TABLE events (id INTEGER PRIMARY KEY, tour_date TEXT, time TEXT DEFAULT '10:00', tour_id INT, guide TEXT, notes TEXT DEFAULT '')");
@@ -24,11 +26,13 @@ class FixturePDO extends PDO
         $this->exec("CREATE TABLE global_settings (setting_key TEXT, setting_value TEXT)");
         $this->exec("CREATE TABLE guide_timeoffs (id INTEGER PRIMARY KEY, guide_name TEXT, date_off TEXT, reason TEXT)");
         $this->exec("CREATE TABLE blocked_dates (id INTEGER PRIMARY KEY, block_date TEXT, tour_ids TEXT, reason TEXT, action_type TEXT, tours TEXT)");
+        $this->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, role TEXT)");
         $this->exec("INSERT INTO tours_catalog (id, name, public_name, default_start_time, tour_type, prices) VALUES (1, 'Длинное название экскурсии в историческую усадьбу', 'Тестовый тур', '10:00', 'Групповая', '{\"1\":1000}'), (2, 'Второй тур', 'Второй тур', '11:00', 'Индивидуальная', '{\"1\":2000}')");
         $this->exec("INSERT INTO guides (name, allowed_tours) VALUES ('Гид А', 'all'), ('Гид Б', 'all')");
         $this->exec("INSERT INTO booking_sources (id,name) VALUES (1,'Сайт'), (2,'CRM')");
         $this->exec("INSERT INTO booking_statuses (name,color) VALUES ('Бронь','#aaaaaa'), ('Отмена','#bbbbbb')");
         $this->exec("INSERT INTO global_settings (setting_key,setting_value) VALUES ('admin_sync_token','fixture-token'), ('working_days','1,2,3,4,5,6,7')");
+        $this->exec("INSERT INTO users (id,name,email,password,role) VALUES (1,'Тестовый администратор','admin@example.invalid','hash','admin'), (2,'Гид А','guide@example.invalid','hash','guide')");
         $this->exec("INSERT INTO events (id,tour_date,tour_id,guide,notes) VALUES (1,'2026-09-05',1,'Гид А','ОченьДлинноеПримечаниеБезПробеловДляПроверкиПереносаНаМобильномЭкране'), (2,'2026-09-06',2,'Гид Б',''), (3,'2026-10-05',1,'Гид Б',''), (4,'2026-08-01',1,'Гид А',''), (5,'2026-09-07',1,'Гид А','Без туристов, с расходами')");
         $stmt = $this->prepare('INSERT INTO participants (event_id,client_name,phone,email,seats,' . ($legacy ? '' : 'places,') . 'price,source,status,notes) VALUES (' . implode(',', array_fill(0, $legacy ? 9 : 10, '?')) . ')');
         foreach ([[1,2,1,3000,'Бронь'], [1,1,4,1000,'Бронь'], [1,8,8,9000,'Отмена'], [2,null,3,2000,'Бронь'], [3,2,2,1500,'Бронь'], [4,4,4,6000,'Бронь']] as [$event,$places,$seats,$price,$status]) {

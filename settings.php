@@ -3,17 +3,26 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'auth.php';
+require_once __DIR__ . '/request_helpers.php';
 
 if ($current_user_role !== 'admin') {
+    http_response_code(403);
     die("<h2 style='text-align:center; margin-top:50px; font-family:sans-serif;'>Доступ закрыт. Только для администратора.</h2>");
 }
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
 // --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДАННЫХ ---
 $pdo->exec("CREATE TABLE IF NOT EXISTS global_settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value TEXT)");
 try { $pdo->exec("ALTER TABLE guides ADD COLUMN sync_token VARCHAR(64) DEFAULT NULL"); } catch(PDOException $e) {}
 try { $pdo->exec("ALTER TABLE guides ADD COLUMN phone VARCHAR(50) DEFAULT ''"); } catch(PDOException $e) {}
 
-$pdo->exec("UPDATE guides SET sync_token = SUBSTRING(MD5(RAND()), 1, 20) WHERE sync_token IS NULL");
+function ensureGuideSyncTokens(PDO $pdo): void {
+    $missing = $pdo->query("SELECT id FROM guides WHERE sync_token IS NULL OR sync_token = ''")->fetchAll(PDO::FETCH_COLUMN);
+    $update = $pdo->prepare('UPDATE guides SET sync_token = ? WHERE id = ?');
+    foreach ($missing as $guideId) $update->execute([bin2hex(random_bytes(16)), (int)$guideId]);
+}
+ensureGuideSyncTokens($pdo);
 
 // Таблица Источников продаж
 $pdo->exec("CREATE TABLE IF NOT EXISTS booking_sources (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, sort_order INT DEFAULT 999)");
@@ -25,7 +34,7 @@ if ($count_sources == 0) {
 // Токен Админа для календаря
 $admin_sync_token = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'admin_sync_token'")->fetchColumn();
 if (!$admin_sync_token) {
-    $admin_sync_token = substr(md5(uniqid(rand(), true)), 0, 20);
+    $admin_sync_token = bin2hex(random_bytes(16));
     $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES ('admin_sync_token', ?)")->execute([$admin_sync_token]);
 }
 // -----------------------------------
@@ -55,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_staff'])) {
             $stmt->execute([$name]);
             if ($stmt->fetchColumn() == 0) {
                 $pdo->prepare("INSERT INTO guides (name, sort_order) VALUES (?, 999)")->execute([$name]);
-                $pdo->exec("UPDATE guides SET sync_token = SUBSTRING(MD5(RAND()), 1, 20) WHERE sync_token IS NULL");
+                ensureGuideSyncTokens($pdo);
             }
         }
         
@@ -81,14 +90,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_guide_phone'])
     $pdo->prepare("UPDATE guides SET phone = ? WHERE id = ?")->execute([$phone, $g_id]);
     header("Location: settings.php?msg=phone_saved"); exit;
 }
-if (isset($_GET['del_guide'])) {
-    $pdo->prepare("DELETE FROM guides WHERE id = ?")->execute([(int)$_GET['del_guide']]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_guide'])) {
+    $pdo->prepare("DELETE FROM guides WHERE id = ?")->execute([(int)$_POST['del_guide']]);
     header("Location: settings.php?msg=guide_deleted"); exit;
 }
 
 // --- УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (ДОСТУПОМ) ---
-if (isset($_GET['del_user'])) {
-    $uid = (int)$_GET['del_user'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_user'])) {
+    $uid = (int)$_POST['del_user'];
     if ($uid !== $_SESSION['user_id']) { $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$uid]); }
     header("Location: settings.php?msg=user_deleted"); exit;
 }
@@ -104,8 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_expense_cat'])) {
     if ($name !== '') { $pdo->prepare("INSERT INTO expense_categories (name, sort_order) VALUES (?, 999)")->execute([$name]); }
     header("Location: settings.php?msg=cat_added"); exit;
 }
-if (isset($_GET['del_expense_cat'])) {
-    $pdo->prepare("DELETE FROM expense_categories WHERE id = ?")->execute([(int)$_GET['del_expense_cat']]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_expense_cat'])) {
+    $pdo->prepare("DELETE FROM expense_categories WHERE id = ?")->execute([(int)$_POST['del_expense_cat']]);
     header("Location: settings.php?msg=cat_deleted"); exit;
 }
 
@@ -115,8 +124,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_source'])) {
     if ($name !== '') { $pdo->prepare("INSERT INTO booking_sources (name, sort_order) VALUES (?, 999)")->execute([$name]); }
     header("Location: settings.php?msg=source_added"); exit;
 }
-if (isset($_GET['del_source'])) {
-    $pdo->prepare("DELETE FROM booking_sources WHERE id = ?")->execute([(int)$_GET['del_source']]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_source'])) {
+    $pdo->prepare("DELETE FROM booking_sources WHERE id = ?")->execute([(int)$_POST['del_source']]);
     header("Location: settings.php?msg=source_deleted"); exit;
 }
 
@@ -258,6 +267,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
             .phone-input { flex-grow: 1; }
         }
     </style>
+    <link rel="stylesheet" href="assets/settings-workspace.css?v=<?= filemtime(__DIR__ . '/assets/settings-workspace.css') ?>">
 </head>
 <body>
 
@@ -266,16 +276,18 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
 <div class="container">
     <?php include 'navbar.php'; ?>
 
-    <div class="page-header">
-        <h2>Настройки системы</h2>
-    </div>
+    <header class="settings-hero">
+        <span class="eyebrow">Управление сервисом</span>
+        <h1>Настройки</h1>
+        <p>Команда, справочники, интеграции и доступы в одном месте.</p>
+    </header>
 
     <div class="admin-sync-box">
         <div>
-            <h3>📱 Сводный календарь компании</h3>
-            <p>Подключите эту ссылку к своему iPhone или Android, чтобы видеть <b>абсолютно все экскурсии всех гидов</b> и их отгулы прямо в стандартном календаре.</p>
+            <h3>Сводный календарь компании</h3>
+            <p>Подключите ссылку к календарю телефона, чтобы видеть все экскурсии и отгулы гидов.</p>
         </div>
-        <button type="button" class="btn-create" style="margin:0; background:white; color:#4F46E5;" onclick="copySyncLink('<?= $admin_ics_link ?>', 'АДМИН')">
+        <button type="button" class="btn-create" style="margin:0; background:white; color:#4F46E5;" onclick='copySyncLink(<?= json_encode($admin_ics_link, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>, "АДМИН")'>
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             Скопировать .ics ссылку
         </button>
@@ -283,8 +295,9 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
 
     <div class="section-wrap grid-2">
         <div class="card" style="background: #F8FAFC;">
-            <h3>➕ Добавить сотрудника / гида</h3>
+            <h3>Добавить сотрудника</h3>
             <form method="POST">
+                <?= formTokenInput() ?>
                 <input type="hidden" name="add_staff" value="1">
                 
                 <div class="form-group">
@@ -307,7 +320,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
                 
                 <div class="form-group" id="passGroup">
                     <label>Временный пароль</label>
-                    <input type="text" name="password" id="passInput" class="t-input" placeholder="Пароль для входа" style="background: #fff;">
+                    <input type="password" name="password" id="passInput" class="t-input" placeholder="Пароль для входа" autocomplete="new-password" style="background: #fff;">
                 </div>
                 
                 <button type="submit" class="btn-create" style="margin-top: 10px; width: 100%; justify-content: center;">Сохранить сотрудника</button>
@@ -315,7 +328,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
         </div>
         
         <div class="card">
-            <h3>🔐 Доступы в CRM (Пользователи)</h3>
+            <h3>Доступы в CRM</h3>
             <p style="font-size:13px; color:var(--text-muted); margin-bottom:15px; margin-top:-10px;">Люди, которые могут заходить в эту систему под своим логином.</p>
             <div class="table-responsive">
                 <table>
@@ -341,13 +354,13 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
                             </td>
                             <td style="text-align: right; white-space: nowrap;">
                                 <div class="action-cell">
-                                    <button type="button" class="btn-icon" style="background:#F1F5F9;" onclick="openPasswordModal(<?= $u['id'] ?>, '<?= htmlspecialchars($u['name'], ENT_QUOTES) ?>')" title="Изменить пароль">
+                                    <button type="button" class="btn-icon" style="background:#F1F5F9;" onclick='openPasswordModal(<?= (int)$u['id'] ?>, <?= json_encode($u['name'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>)' title="Изменить пароль">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                     </button>
                                     <?php if ($u['id'] !== $_SESSION['user_id']): ?>
-                                        <a href="?del_user=<?= $u['id'] ?>" class="btn-icon btn-del" onclick="return confirm('Удалить пользователя (закрыть доступ)?');" title="Закрыть доступ">
+                                        <form method="POST" class="delete-form" onsubmit="return confirm('Удалить пользователя (закрыть доступ)?');"><?= formTokenInput() ?><button type="submit" name="del_user" value="<?= (int)$u['id'] ?>" class="btn-icon btn-del" title="Закрыть доступ">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                                        </a>
+                                        </button></form>
                                     <?php endif; ?>
                                 </div>
                             </td>
@@ -361,7 +374,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
 
     <div class="section-wrap grid-2">
         <div class="card">
-            <h3>👤 Справочник гидов</h3>
+            <h3>Справочник гидов</h3>
             <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px; margin-top:-10px;">Эти люди появляются в выпадающих списках при создании экскурсий.</p>
             
             <ul class="sortable-list" data-table="guides">
@@ -376,6 +389,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
 
                     <div class="list-actions">
                         <form method="POST" style="margin:0; display:flex; gap:6px;">
+                            <?= formTokenInput() ?>
                             <input type="hidden" name="update_guide_phone" value="<?= $g['id'] ?>">
                             <input type="text" name="phone" class="t-input phone-input" value="<?= htmlspecialchars($g['phone']) ?>" placeholder="Телефон...">
                             <button type="submit" class="btn-icon btn-save-mini" title="Сохранить телефон">
@@ -383,14 +397,14 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
                             </button>
                         </form>
 
-                        <button type="button" class="btn-link" onclick="copySyncLink('https://<?= $_SERVER['HTTP_HOST'] ?>/calendar_feed.php?token=<?= $g['sync_token'] ?>', '<?= htmlspecialchars($g['name']) ?>')" title="Скопировать ссылку для телефона">
+                        <button type="button" class="btn-link" onclick='copySyncLink(<?= json_encode('https://' . $_SERVER['HTTP_HOST'] . '/calendar_feed.php?token=' . $g['sync_token'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>, <?= json_encode($g['name'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>)' title="Скопировать ссылку для телефона">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                             .ics
                         </button>
                         
-                        <a href="?del_guide=<?= $g['id'] ?>" class="btn-icon btn-del" onclick="return confirm('Удалить гида из справочника?');" title="Удалить">
+                        <form method="POST" class="delete-form" onsubmit="return confirm('Удалить гида из справочника?');"><?= formTokenInput() ?><button type="submit" name="del_guide" value="<?= (int)$g['id'] ?>" class="btn-icon btn-del" title="Удалить">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                        </a>
+                        </button></form>
                     </div>
                 </li>
                 <?php endforeach; ?>
@@ -398,9 +412,10 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
         </div>
 
         <div class="card">
-            <h3>📢 Источники продаж (Каналы)</h3>
+            <h3>Источники продаж</h3>
             <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px; margin-top:-10px;">Откуда к вам приходят туристы (Авито, Трипстер и т.д.).</p>
             <form method="POST" class="inline-form">
+                <?= formTokenInput() ?>
                 <input type="text" name="source_name" class="t-input" placeholder="Новый источник (например: Авито)..." required>
                 <button type="submit" name="add_source" class="btn-save">+ Добавить</button>
             </form>
@@ -413,9 +428,9 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
                         </div>
                         <span class="item-name"><?= htmlspecialchars($src['name']) ?></span>
                     </div>
-                    <a href="?del_source=<?= $src['id'] ?>" class="btn-icon btn-del" onclick="return confirm('Удалить источник?');" title="Удалить">
+                    <form method="POST" class="delete-form" onsubmit="return confirm('Удалить источник?');"><?= formTokenInput() ?><button type="submit" name="del_source" value="<?= (int)$src['id'] ?>" class="btn-icon btn-del" title="Удалить">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </a>
+                    </button></form>
                 </li>
                 <?php endforeach; ?>
             </ul>
@@ -424,9 +439,10 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
 
     <div class="section-wrap grid-2">
         <div class="card">
-            <h3>💰 Категории расходов</h3>
+            <h3>Категории расходов</h3>
             <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px; margin-top:-10px;">Поможет анализировать, куда уходят деньги с туров.</p>
             <form method="POST" class="inline-form">
+                <?= formTokenInput() ?>
                 <input type="text" name="expense_cat_name" class="t-input" placeholder="Новая категория (например: Бензин)..." required>
                 <button type="submit" name="add_expense_cat" class="btn-save">+ Добавить</button>
             </form>
@@ -439,18 +455,19 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
                         </div>
                         <span class="item-name"><?= htmlspecialchars($ec['name']) ?></span>
                     </div>
-                    <a href="?del_expense_cat=<?= $ec['id'] ?>" class="btn-icon btn-del" onclick="return confirm('Удалить категорию?');" title="Удалить">
+                    <form method="POST" class="delete-form" onsubmit="return confirm('Удалить категорию?');"><?= formTokenInput() ?><button type="submit" name="del_expense_cat" value="<?= (int)$ec['id'] ?>" class="btn-icon btn-del" title="Удалить">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </a>
+                    </button></form>
                 </li>
                 <?php endforeach; ?>
             </ul>
         </div>
 
         <div class="card">
-            <h3>✈️ Уведомления в Telegram</h3>
+            <h3>Уведомления в Telegram</h3>
             <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px; line-height: 1.5; margin-top:-10px;">Настройте бота, чтобы новые заявки с сайта моментально приходили вам в мессенджер.</p>
             <form method="POST">
+                <?= formTokenInput() ?>
                 <input type="hidden" name="save_telegram" value="1">
                 <div class="form-group">
                     <label>Токен бота (из BotFather)</label>
@@ -473,10 +490,11 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
         <p style="font-size:14px; color:var(--text-muted); margin-bottom: 25px;">Для пользователя: <strong id="modalUserName" style="color:var(--primary);"></strong></p>
         
         <form method="POST" style="margin: 0;">
+            <?= formTokenInput() ?>
             <input type="hidden" name="change_password" value="1">
             <input type="hidden" name="user_id" id="modalUserId">
             <div class="form-group">
-                <input type="text" name="new_password" class="t-input" placeholder="Введите новый пароль" required>
+                <input type="password" name="new_password" class="t-input" placeholder="Введите новый пароль" autocomplete="new-password" required>
             </div>
             <button type="submit" class="btn-save" style="width:100%; margin-top: 15px; height: 44px;">Сохранить пароль</button>
         </form>
@@ -484,6 +502,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
 </div>
 
 <script>
+    const settingsCsrfToken = <?= json_encode(formToken()) ?>;
     // Показ/Скрытие обязательных полей в зависимости от роли
     function toggleAccessFields() {
         const role = document.getElementById('roleSelect').value;
@@ -552,6 +571,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
                 onEnd: function () {
                     const formData = new FormData();
                     formData.append('action', 'update_sort');
+                    formData.append('csrf_token', settingsCsrfToken);
                     formData.append('table', list.getAttribute('data-table'));
                     Array.from(list.querySelectorAll('li')).forEach(item => formData.append('order[]', item.getAttribute('data-id')));
                     fetch('settings.php', { method: 'POST', body: formData });

@@ -56,6 +56,9 @@ try {
           $data['blocked_dates'] = $GLOBALS['pdo']->query('SELECT * FROM blocked_dates ORDER BY block_date')->fetchAll();
           $data['guide_timeoffs'] = $GLOBALS['pdo']->query('SELECT * FROM guide_timeoffs ORDER BY date_off')->fetchAll();
           $data['tours_catalog'] = $GLOBALS['pdo']->query('SELECT * FROM tours_catalog ORDER BY id')->fetchAll();
+          $data['guides'] = $GLOBALS['pdo']->query('SELECT * FROM guides ORDER BY id')->fetchAll();
+          $data['booking_sources'] = $GLOBALS['pdo']->query('SELECT * FROM booking_sources ORDER BY id')->fetchAll();
+          $data['users'] = $GLOBALS['pdo']->query('SELECT * FROM users ORDER BY id')->fetchAll();
           $data['notifications'] = $GLOBALS['notifications'] ?? [];
           if ($GLOBALS['pdo']->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='client_profiles'")->fetchColumn()) {
             $data['client_profiles'] = $GLOBALS['pdo']->query('SELECT * FROM client_profiles ORDER BY phone')->fetchAll();
@@ -195,6 +198,19 @@ try {
   const normalizedAnalytics = await page('analytics.php', {date_from:'2026-09-30',date_to:'2026-09-01',stat_year:'9999'});
   assert.equal(normalizedAnalytics.data.total_seats, 6);
   assert.ok(normalizedAnalytics.html.includes('01.09.2026 — 30.09.2026'));
+  checks++;
+  const settings = await page('settings.php');
+  assert.ok(settings.html.includes('Управление сервисом'));
+  assert.ok(settings.html.includes('assets/settings-workspace.css'));
+  assert.ok(settings.html.includes('name="csrf_token"'));
+  assert.ok(settings.html.includes('type="password"'));
+  checks++;
+  const safeSettingsGet = await page('settings.php', {del_source:1});
+  assert.equal(safeSettingsGet.data.booking_sources.length, 2);
+  checks++;
+  const settingsCsrf = await page('settings.php', {}, {del_source:1,csrf_token:''});
+  assert.equal(settingsCsrf.status, 403);
+  assert.equal(settingsCsrf.data.booking_sources.length, 2);
   checks++;
   const feed = await page('calendar_feed.php', {token:'fixture-token'});
   assert.ok(feed.html.includes('историческую усадьбу [Гид А] (3 чел.)'));
