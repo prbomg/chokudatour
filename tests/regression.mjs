@@ -283,6 +283,9 @@ try {
 
   // Save the actual rendered page, with long fixture strings, for browser QA.
   const rendered = await page('index.php');
+  assert.match(rendered.html, /assets\/homepage-actions\.js\?v=\d+/);
+  assert.match(rendered.html, /assets\/homepage\.js\?v=\d+/);
+  checks++;
   if (process.env.CRM_TEST_HTML) {
     await writeFile(process.env.CRM_TEST_HTML, rendered.html);
     await writeFile(process.env.CRM_TEST_HTML.replace(/\.html$/, '-archive.html'), rendered.html.replace('<tbody id="eventsTableBody">', '<tbody id="eventsTableBody">' + archive.html));
