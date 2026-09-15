@@ -55,6 +55,7 @@ try {
           $data['expenses'] = $GLOBALS['pdo']->query('SELECT * FROM expenses ORDER BY id')->fetchAll();
           $data['blocked_dates'] = $GLOBALS['pdo']->query('SELECT * FROM blocked_dates ORDER BY block_date')->fetchAll();
           $data['guide_timeoffs'] = $GLOBALS['pdo']->query('SELECT * FROM guide_timeoffs ORDER BY date_off')->fetchAll();
+          $data['tours_catalog'] = $GLOBALS['pdo']->query('SELECT * FROM tours_catalog ORDER BY id')->fetchAll();
           $data['notifications'] = $GLOBALS['notifications'] ?? [];
           if ($GLOBALS['pdo']->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='client_profiles'")->fetchColumn()) {
             $data['client_profiles'] = $GLOBALS['pdo']->query('SELECT * FROM client_profiles ORDER BY phone')->fetchAll();
@@ -161,6 +162,17 @@ try {
   const participants = await page('participants.php');
   assert.equal(participants.data.total_seats, 8);
   assert.ok(participants.html.includes('Количество расходится'));
+  checks++;
+  const tourCatalog = await page('tours.php');
+  assert.ok(tourCatalog.html.includes('Продукты и программы'));
+  assert.ok(tourCatalog.html.includes('name="csrf_token"'));
+  checks++;
+  const safeTourGet = await page('tours.php', {archive_tour:1});
+  assert.equal(Number(safeTourGet.data.tours_catalog[0].is_archived), 0);
+  checks++;
+  const tourCsrf = await page('tours.php', {}, {archive_tour:1,csrf_token:''});
+  assert.equal(tourCsrf.status, 403);
+  assert.equal(Number(tourCsrf.data.tours_catalog[0].is_archived), 0);
   checks++;
   const analytics = await page('analytics.php', {date_from:'2026-09-01',date_to:'2026-09-30'});
   assert.equal(analytics.data.total_seats, 6);

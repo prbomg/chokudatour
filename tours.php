@@ -3,10 +3,13 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once 'auth.php';
+require_once __DIR__ . '/request_helpers.php';
 
 if ($current_user_role !== 'admin') {
+    http_response_code(403);
     die("Доступ закрыт.");
 }
+if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
 // Функция для уникального цвета источника
 function getSourceColor($name) {
@@ -40,8 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_tour'])) {
 }
 
 // --- ДУБЛИРОВАНИЕ ТУРА ---
-if (isset($_GET['duplicate_tour'])) {
-    $id_to_copy = (int)$_GET['duplicate_tour'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duplicate_tour'])) {
+    $id_to_copy = (int)$_POST['duplicate_tour'];
     $stmt = $pdo->prepare("SELECT * FROM tours_catalog WHERE id = ?");
     $stmt->execute([$id_to_copy]);
     $tour = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -74,22 +77,22 @@ if (isset($_GET['duplicate_tour'])) {
 }
 
 // --- АРХИВАЦИЯ ТУРА (Soft Delete) ---
-if (isset($_GET['archive_tour'])) {
-    $id = (int)$_GET['archive_tour'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['archive_tour'])) {
+    $id = (int)$_POST['archive_tour'];
     $pdo->prepare("UPDATE tours_catalog SET is_archived = 1 WHERE id = ?")->execute([$id]);
     header("Location: tours.php?msg=tour_archived"); exit;
 }
 
 // --- ВОССТАНОВЛЕНИЕ ТУРА ---
-if (isset($_GET['restore_tour'])) {
-    $id = (int)$_GET['restore_tour'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['restore_tour'])) {
+    $id = (int)$_POST['restore_tour'];
     $pdo->prepare("UPDATE tours_catalog SET is_archived = 0 WHERE id = ?")->execute([$id]);
     header("Location: tours.php?show_archive=1&msg=tour_restored"); exit;
 }
 
 // --- УДАЛЕНИЕ ТУРА НАВСЕГДА ---
-if (isset($_GET['del_tour'])) {
-    $id = (int)$_GET['del_tour'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_tour'])) {
+    $id = (int)$_POST['del_tour'];
     $check = $pdo->prepare("SELECT COUNT(*) FROM events WHERE tour_id = ?");
     $check->execute([$id]);
     
@@ -128,7 +131,7 @@ while ($row = $stats_stmt->fetch(PDO::FETCH_ASSOC)) {
     $tour_stats[$row['tour_id']] = (int)$row['cnt'];
 }
 
-$guides = $pdo->query("SELECT id, name, allowed_tours FROM guides ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$guides = $pdo->query("SELECT name, allowed_tours FROM guides ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 function getGuideColor($guideName) {
     if (empty($guideName) || $guideName === 'Не назначен') return "hsl(215, 16%, 80%)";
@@ -237,6 +240,8 @@ function getGuideColor($guideName) {
         .toast.error { background: #EF4444; }
         .toast.warning { background: #F59E0B; }
     </style>
+    <link rel="stylesheet" href="assets/tours-workspace.css?v=<?= (int)@filemtime(__DIR__ . '/assets/tours-workspace.css') ?>">
+    <style>@media(max-width:650px){html,body{max-width:100%;overflow-x:hidden}.navbar{max-width:100%;box-sizing:border-box;overflow-x:auto;overflow-y:hidden}}</style>
 </head>
 <body>
 
@@ -246,8 +251,8 @@ function getGuideColor($guideName) {
     <?php include 'navbar.php'; ?>
 
     <div class="header-box">
-        <h2>Каталог туров</h2>
-        <form method="POST">
+        <div><span class="eyebrow">Продукты и программы</span><h1>Маршруты</h1><p>Каталог программ, цен, гидов и страниц для туристов.</p></div>
+        <form method="POST"><?= formTokenInput() ?>
             <input type="hidden" name="create_new_tour" value="1">
             <button type="submit" class="btn-create">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -258,8 +263,8 @@ function getGuideColor($guideName) {
 
     <div class="top-controls">
         <div class="tabs-wrap">
-            <a href="tours.php" class="tab <?= !$show_archive ? 'active' : '' ?>">🚀 Активные туры</a>
-            <a href="tours.php?show_archive=1" class="tab <?= $show_archive ? 'active' : '' ?>">📦 Архив (<?= $pdo->query("SELECT COUNT(*) FROM tours_catalog WHERE is_archived=1")->fetchColumn() ?>)</a>
+            <a href="tours.php" class="tab <?= !$show_archive ? 'active' : '' ?>">Активные</a>
+            <a href="tours.php?show_archive=1" class="tab <?= $show_archive ? 'active' : '' ?>">Архив · <?= $pdo->query("SELECT COUNT(*) FROM tours_catalog WHERE is_archived=1")->fetchColumn() ?></a>
         </div>
         <input type="text" id="searchInput" class="search-input" placeholder="🔍 Быстрый поиск..." onkeyup="filterTours()">
     </div>
@@ -372,10 +377,10 @@ function getGuideColor($guideName) {
 
                 <div class="tour-actions">
                     <?php if ($show_archive): ?>
-                        <a href="?restore_tour=<?= $t_id ?>" class="btn-restore">Восстановить из архива</a>
-                        <a href="?del_tour=<?= $t_id ?>" class="btn-icon-action btn-del" onclick="return confirm('Точно удалить тур НАВСЕГДА? Это действие нельзя отменить.');" title="Удалить навсегда">
+                        <form method="POST" class="restore-form"><?= formTokenInput() ?><button name="restore_tour" value="<?= $t_id ?>" class="btn-restore">Восстановить из архива</button></form>
+                        <form method="POST" onsubmit="return confirm('Точно удалить тур НАВСЕГДА? Это действие нельзя отменить.');"><?= formTokenInput() ?><button name="del_tour" value="<?= $t_id ?>" class="btn-icon-action btn-del" title="Удалить навсегда">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                        </a>
+                        </button></form>
                     <?php else: ?>
                         <button type="button" class="btn-icon-action btn-wp" onclick="showEmbedModal(<?= $t_id ?>)" title="Код календаря для вставки на сайт">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
@@ -401,13 +406,13 @@ function getGuideColor($guideName) {
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                         </a>
                         
-                        <a href="?duplicate_tour=<?= $t_id ?>" class="btn-icon-action btn-dup" title="Дублировать тур" onclick="return confirm('Создать точную копию этого тура?');">
+                        <form method="POST" onsubmit="return confirm('Создать точную копию этого тура?');"><?= formTokenInput() ?><button name="duplicate_tour" value="<?= $t_id ?>" class="btn-icon-action btn-dup" title="Дублировать тур">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        </a>
+                        </button></form>
 
-                        <a href="?archive_tour=<?= $t_id ?>" class="btn-icon-action btn-del" onclick="return confirm('Убрать тур в архив?');" title="В архив">
+                        <form method="POST" onsubmit="return confirm('Убрать тур в архив?');"><?= formTokenInput() ?><button name="archive_tour" value="<?= $t_id ?>" class="btn-icon-action btn-del" title="В архив">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
-                        </a>
+                        </button></form>
                     <?php endif; ?>
                 </div>
             </div>
@@ -439,6 +444,7 @@ function getGuideColor($guideName) {
 </div>
 
 <script>
+    const toursCsrfToken = <?= json_encode(formToken(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     function filterTours() {
         let val = document.getElementById('searchInput').value.toLowerCase();
         let cards = document.querySelectorAll('.tour-card');
@@ -549,6 +555,7 @@ function getGuideColor($guideName) {
                 onEnd: function () {
                     const formData = new FormData();
                     formData.append('action', 'update_sort');
+                    formData.append('csrf_token', toursCsrfToken);
                     Array.from(list.querySelectorAll('.tour-card')).forEach((item, index) => {
                         formData.append('order[]', item.getAttribute('data-id'));
                         let orderDiv = item.querySelector('.tour-badge-order');

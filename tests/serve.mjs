@@ -7,7 +7,7 @@ import {getPHPLoaderModule} from '@php-wasm/node-8-4';
 const root = new URL('../',import.meta.url);
 const php = new PHP(await loadPHPRuntime(await getPHPLoaderModule()));
 php.mkdir('/app');
-const allowed = ['index.php','event.php','client.php','clients.php','schedule.php','participants.php','widget.php'];
+const allowed = ['index.php','event.php','client.php','clients.php','schedule.php','tours.php','participants.php','widget.php'];
 for (const file of (await readdir(root)).filter(f=>f.endsWith('.php'))) php.writeFile('/app/'+file,await readFile(new URL(file,root)));
 php.writeFile('/app/fixture.php',await readFile(new URL('fixture.php',import.meta.url)));
 for (const file of ['auth.php','db.php']) php.writeFile('/app/'+file,"<?php require_once __DIR__ . '/fixture.php';");
@@ -16,7 +16,7 @@ let queue = Promise.resolve();
 const server = http.createServer((req,res) => {
   queue = queue.then(async () => {
     const url = new URL(req.url,'http://127.0.0.1:8765');
-    if (['/assets/homepage.js','/assets/homepage-actions.js','/assets/homepage-base.css','/assets/homepage-workspace.css','/assets/event-workspace.css','/assets/event-workspace.js','/assets/client-workspace.css','/assets/client-workspace.js','/assets/schedule-workspace.css','/assets/style.css','/assets/app.js'].includes(url.pathname)) {
+    if (['/assets/homepage.js','/assets/homepage-actions.js','/assets/homepage-base.css','/assets/homepage-workspace.css','/assets/event-workspace.css','/assets/event-workspace.js','/assets/client-workspace.css','/assets/client-workspace.js','/assets/schedule-workspace.css','/assets/tours-workspace.css','/assets/style.css','/assets/app.js'].includes(url.pathname)) {
       res.setHeader('Content-Type',url.pathname.endsWith('.js')?'text/javascript':'text/css');
       res.end(await readFile(new URL(url.pathname.slice(1),root))); return;
     }
