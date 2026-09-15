@@ -53,6 +53,8 @@ try {
           $data['participants'] = $GLOBALS['pdo']->query('SELECT * FROM participants ORDER BY id')->fetchAll();
           $data['all_events'] = $GLOBALS['pdo']->query('SELECT * FROM events ORDER BY id')->fetchAll();
           $data['expenses'] = $GLOBALS['pdo']->query('SELECT * FROM expenses ORDER BY id')->fetchAll();
+          $data['blocked_dates'] = $GLOBALS['pdo']->query('SELECT * FROM blocked_dates ORDER BY block_date')->fetchAll();
+          $data['guide_timeoffs'] = $GLOBALS['pdo']->query('SELECT * FROM guide_timeoffs ORDER BY date_off')->fetchAll();
           $data['notifications'] = $GLOBALS['notifications'] ?? [];
           if ($GLOBALS['pdo']->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='client_profiles'")->fetchColumn()) {
             $data['client_profiles'] = $GLOBALS['pdo']->query('SELECT * FROM client_profiles ORDER BY phone')->fetchAll();
@@ -139,6 +141,22 @@ try {
   checks++;
   const calendar = await page('schedule.php', {ym:'2026-09'});
   assert.equal(Number(calendar.data.events_raw.find(e => e.id === 1).seats_count), 3);
+  assert.ok(calendar.html.includes('role=\'button\' tabindex=\'0\''));
+  assert.ok(calendar.html.includes('name="csrf_token"'));
+  checks++;
+  const scheduledEvent = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide:'Гид А'});
+  assert.equal(scheduledEvent.data.all_events.length, 6);
+  assert.equal(scheduledEvent.data.all_events.at(-1).time, '09:30');
+  checks++;
+  const invalidScheduledEvent = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-02-30',time:'09:30',guide:'Гид А'});
+  assert.equal(invalidScheduledEvent.data.all_events.length, 5);
+  checks++;
+  const scheduleCsrf = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'10:00',csrf_token:''});
+  assert.equal(scheduleCsrf.status, 403);
+  assert.equal(scheduleCsrf.data.all_events.length, 5);
+  checks++;
+  const safeScheduleGet = await page('schedule.php', {ym:'2026-09',del_rule:'2026-09-20'}, {}, false, {setup:["INSERT INTO blocked_dates (block_date,reason,action_type,tours) VALUES ('2026-09-20','Тест','close','all')"]});
+  assert.equal(safeScheduleGet.data.blocked_dates.length, 1);
   checks++;
   const participants = await page('participants.php');
   assert.equal(participants.data.total_seats, 8);

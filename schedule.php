@@ -4,11 +4,14 @@ error_reporting(E_ALL);
 
 require_once 'auth.php';
 require_once __DIR__ . '/participant_seats.php';
+require_once __DIR__ . '/request_helpers.php';
 $participant_seats_sql = participantSeatsSql($pdo);
 
 if ($current_user_role !== 'admin') {
+    http_response_code(403);
     die("<h2 style='text-align:center; margin-top:50px; font-family:sans-serif;'>Доступ закрыт. Только для администратора.</h2>");
 }
+if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
 // --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДАННЫХ ---
 try {
@@ -22,7 +25,14 @@ try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS guide_timeoffs (id INT AUTO_INCREMENT PRIMARY KEY, guide_name VARCHAR(255) NOT NULL, date_off DATE NOT NULL, reason VARCHAR(255))");
 } catch (PDOException $e) {}
 
-$ym = $_GET['ym'] ?? date('Y-m');
+$ym = (string)($_GET['ym'] ?? date('Y-m'));
+if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $ym)) $ym = date('Y-m');
+
+function scheduleDate(string $value): ?DateTime
+{
+    $date = DateTime::createFromFormat('!Y-m-d', $value);
+    return $date && $date->format('Y-m-d') === $value ? $date : null;
+}
 
 // --- 1. ДОБАВЛЕНИЕ ОДНОГО ТУРА НА ДАТУ ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_single_event'])) {
@@ -31,12 +41,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_single_event'])) 
     $tour_date = $_POST['tour_date'] ?? '';
     $time = trim($_POST['time'] ?? '');
 
-    if ($tour_id > 0 && !empty($tour_date)) {
+    $date = scheduleDate($tour_date);
+    $tour_stmt = $pdo->prepare('SELECT default_start_time FROM tours_catalog WHERE id = ? AND COALESCE(is_archived,0)=0');
+    $tour_stmt->execute([$tour_id]);
+    $default_time = $tour_stmt->fetchColumn();
+    $guide_stmt = $pdo->prepare('SELECT COUNT(*) FROM guides WHERE name = ?');
+    $guide_stmt->execute([$guide]);
+    $guide_valid = $guide === 'Не назначен' || (bool)$guide_stmt->fetchColumn();
+    if ($tour_id > 0 && $date && $default_time !== false && $guide_valid) {
         if (empty($time)) {
-            $stmt_t = $pdo->prepare("SELECT default_start_time FROM tours_catalog WHERE id = ?");
-            $stmt_t->execute([$tour_id]);
-            $time = $stmt_t->fetchColumn() ?: '10:00';
+            $time = $default_time ?: '10:00';
         }
+        if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/D', $time)) $time = '10:00';
 
         $pdo->prepare("INSERT INTO events (tour_id, tour_date, time, guide) VALUES (?, ?, ?, ?)")->execute([$tour_id, $tour_date, $time, $guide]);
         header("Location: schedule.php?ym={$ym}&msg=event_added"); exit;
@@ -45,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_single_event'])) 
 
 // --- 2. СОХРАНЕНИЕ ГРАФИКА РАБОЧИХ ДНЕЙ ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_working_days'])) {
-    $wd_arr = $_POST['wd'] ?? [];
+    $wd_arr = array_values(array_intersect(['1','2','3','4','5','6','7'], array_map('strval', (array)($_POST['wd'] ?? []))));
     $wd_str = implode(',', $wd_arr);
     $pdo->prepare("UPDATE global_settings SET setting_value = ? WHERE setting_key = 'working_days'")->execute([$wd_str]);
     header("Location: schedule.php?ym={$ym}&msg=wd_saved"); exit;
@@ -55,15 +71,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_working_days']))
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_date_rule'])) {
     $d_start = $_POST['rule_date_start'] ?? '';
     $d_end = $_POST['rule_date_end'] ?: $d_start;
-    $action_type = $_POST['action_type'] ?? 'close';
+    $action_type = ($_POST['action_type'] ?? 'close') === 'open' ? 'open' : 'close';
     $reason = trim($_POST['rule_reason'] ?? '');
     
-    $tours_arr = $_POST['tours'] ?? [];
+    $tours_arr = array_values(array_filter(array_map('strval', (array)($_POST['tours'] ?? [])), fn($value) => $value === 'all' || ctype_digit($value)));
     $tours_val = (in_array('all', $tours_arr) || empty($tours_arr)) ? 'all' : implode(',', $tours_arr);
 
-    if ($d_start !== '') {
-        $start = new DateTime($d_start);
-        $end = new DateTime($d_end);
+    if (($start = scheduleDate($d_start))) {
+        $end = scheduleDate($d_end) ?: clone $start;
         if ($end < $start) $end = clone $start;
 
         while ($start <= $end) {
@@ -80,14 +95,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_date_rule'])) 
     $d_start = $_POST['rule_date_start'] ?? '';
     $d_end = $_POST['rule_date_end'] ?: $d_start;
     
-    if ($d_start !== '') {
+    if (scheduleDate($d_start) && scheduleDate($d_end)) {
         $pdo->prepare("DELETE FROM blocked_dates WHERE block_date BETWEEN ? AND ?")->execute([$d_start, $d_end]);
         header("Location: schedule.php?ym={$ym}&msg=rule_deleted"); exit;
     }
 }
 
-if (isset($_GET['del_rule'])) {
-    $pdo->prepare("DELETE FROM blocked_dates WHERE block_date = ?")->execute([$_GET['del_rule']]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_rule_date']) && scheduleDate((string)$_POST['delete_rule_date'])) {
+    $pdo->prepare("DELETE FROM blocked_dates WHERE block_date = ?")->execute([$_POST['delete_rule_date']]);
     header("Location: schedule.php?ym={$ym}&msg=rule_deleted"); exit;
 }
 
@@ -98,21 +113,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_timeoff'])) {
     $d_end = $_POST['timeoff_date_end'] ?: $d_start;
     $reason = trim($_POST['timeoff_reason'] ?? '');
 
-    if ($g_name && $d_start) {
-        $start = new DateTime($d_start);
-        $end = new DateTime($d_end);
+    $guide_stmt = $pdo->prepare('SELECT COUNT(*) FROM guides WHERE name = ?');
+    $guide_stmt->execute([$g_name]);
+    if ($g_name && $guide_stmt->fetchColumn() && ($start = scheduleDate($d_start))) {
+        $end = scheduleDate($d_end) ?: clone $start;
         if ($end < $start) $end = clone $start;
 
         while ($start <= $end) {
-            $pdo->prepare("INSERT INTO guide_timeoffs (guide_name, date_off, reason) VALUES (?, ?, ?)")->execute([$g_name, $start->format('Y-m-d'), $reason]);
+            $exists = $pdo->prepare('SELECT COUNT(*) FROM guide_timeoffs WHERE guide_name=? AND date_off=?');
+            $exists->execute([$g_name, $start->format('Y-m-d')]);
+            if (!$exists->fetchColumn()) $pdo->prepare("INSERT INTO guide_timeoffs (guide_name, date_off, reason) VALUES (?, ?, ?)")->execute([$g_name, $start->format('Y-m-d'), $reason]);
             $start->modify('+1 day');
         }
     }
     header("Location: schedule.php?ym={$ym}&msg=timeoff_saved"); exit;
 }
 
-if (isset($_GET['del_timeoff'])) {
-    $pdo->prepare("DELETE FROM guide_timeoffs WHERE id = ?")->execute([(int)$_GET['del_timeoff']]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_timeoff'])) {
+    $pdo->prepare("DELETE FROM guide_timeoffs WHERE id = ?")->execute([(int)$_POST['delete_timeoff']]);
     header("Location: schedule.php?ym={$ym}&msg=timeoff_deleted"); exit;
 }
 
@@ -329,6 +347,8 @@ function getGuideColor($guideName) {
             .wd-grid { flex-wrap: wrap; justify-content: center; }
         }
     </style>
+    <link rel="stylesheet" href="assets/schedule-workspace.css?v=<?= (int)@filemtime(__DIR__ . '/assets/schedule-workspace.css') ?>">
+    <style>.cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}.cal-cell{min-width:0}</style>
 </head>
 <body>
 
@@ -338,15 +358,16 @@ function getGuideColor($guideName) {
     <?php include 'navbar.php'; ?>
 
     <div class="header-box">
-        <h2>Центр управления расписанием</h2>
+        <div><span class="eyebrow">Планирование команды</span><h1>Расписание</h1><p>Выезды, рабочие дни, исключения и отгулы гидов.</p></div>
+        <a class="today-link" href="?ym=<?= date('Y-m') ?>">Текущий месяц</a>
     </div>
 
     <div class="settings-bar">
         <div class="settings-info">
-            <h3>🛠 Базовый график работы</h3>
+            <h3>Базовый график работы</h3>
             <p>Дни недели, в которые компания работает по умолчанию</p>
         </div>
-        <form method="POST" class="settings-form">
+        <form method="POST" class="settings-form"><?= formTokenInput() ?>
             <input type="hidden" name="save_working_days" value="1">
             <div class="wd-grid">
                 <?php 
@@ -364,7 +385,7 @@ function getGuideColor($guideName) {
         </form>
     </div>
 
-    <div class="card" style="padding: 20px;">
+    <div class="card calendar-card">
         <div class="card-header" style="margin-bottom: 15px; border: none; padding: 0;">
             <div class="cal-nav">
                 <a href="?ym=<?= $prev_ym ?>" class="btn-nav">
@@ -398,6 +419,7 @@ function getGuideColor($guideName) {
                     $rule = $rules_map[$date_string] ?? null;
                     $timeoffs = $timeoffs_map[$date_string] ?? [];
                     $day_events = $events_map[$date_string] ?? [];
+                    $rule_reason = htmlspecialchars((string)($rule['reason'] ?? ''), ENT_QUOTES);
 
                     $cell_classes = ['cal-cell'];
                     if ($rule) {
@@ -416,25 +438,25 @@ function getGuideColor($guideName) {
 
                     $classes_str = implode(' ', $cell_classes);
 
-                    echo "<div class='{$classes_str}' data-date='{$date_string}' onclick=\"openUnifiedModal('{$date_string}')\">";
+                    echo "<div class='{$classes_str}' data-date='{$date_string}' role='button' tabindex='0' aria-label='Настроить {$day} {$month_title}' onclick=\"openUnifiedModal('{$date_string}')\">";
                     echo "<div class='date-num {$today_class}'>{$day}</div>";
 
                     if ($rule) {
                         if ($rule['action_type'] === 'close') {
                             if(is_array($rule['tours']) && count($rule['tours']) > 0 && $rule['tours'][0] !== 'all') {
-                                echo "<div class='status-pill sp-partial' title='{$rule['reason']}'>⚠️ Частично закрыто</div>";
+                                echo "<div class='status-pill sp-partial' title='{$rule_reason}'>Частично закрыто</div>";
                             } else {
-                                echo "<div class='status-pill sp-closed' title='{$rule['reason']}'>🛑 Закрыто</div>";
+                                echo "<div class='status-pill sp-closed' title='{$rule_reason}'>Закрыто</div>";
                             }
                         } else {
-                            echo "<div class='status-pill sp-open' title='{$rule['reason']}'>✅ Открыто принуд.</div>";
+                            echo "<div class='status-pill sp-open' title='{$rule_reason}'>Открыто вручную</div>";
                         }
                     } elseif (!$is_working) {
-                        echo "<div class='status-pill sp-closed'>⏸ Выходной день</div>";
+                        echo "<div class='status-pill sp-closed'>Выходной день</div>";
                     }
 
                     foreach ($timeoffs as $to) {
-                        echo "<div class='status-pill sp-timeoff' style='border-left: 3px solid ".getGuideColor($to['guide_name'])."'>🚷 {$to['guide_name']}</div>";
+                        echo "<div class='status-pill sp-timeoff' style='border-left: 3px solid ".getGuideColor($to['guide_name'])."'>Отгул · " . htmlspecialchars($to['guide_name']) . "</div>";
                     }
 
                     foreach ($day_events as $ev) {
@@ -467,7 +489,7 @@ function getGuideColor($guideName) {
 
     <div class="lists-grid">
         <div class="card" style="margin-bottom: 0;">
-            <div class="card-header">📅 Будущие исключения и выходные</div>
+            <div class="card-header">Будущие исключения и выходные</div>
             <div class="rule-list">
                 <?php if (empty($future_rules)): ?>
                     <div style="text-align:center; padding: 20px; color:var(--text-muted); font-size:13px;">Нет исключений на будущее.</div>
@@ -483,14 +505,14 @@ function getGuideColor($guideName) {
                             </div>
                             <div class="r-desc"><?= htmlspecialchars($r['reason'] ?: 'Без причины') ?> (Туры: <?= $r['tours'] === 'all' ? 'Все' : 'Выбраны' ?>)</div>
                         </div>
-                        <a href="?ym=<?= $ym ?>&del_rule=<?= $r['block_date'] ?>" class="btn-del" title="Удалить правило" onclick="return confirm('Удалить правило?');">✕</a>
+                        <form method="POST" onsubmit="return confirm('Удалить правило?');"><?= formTokenInput() ?><button name="delete_rule_date" value="<?= htmlspecialchars($r['block_date'], ENT_QUOTES) ?>" class="btn-del" title="Удалить правило" aria-label="Удалить правило">✕</button></form>
                     </div>
                 <?php endforeach; ?>
             </div>
         </div>
 
         <div class="card" style="margin-bottom: 0;">
-            <div class="card-header">🚷 Будущие отгулы гидов</div>
+            <div class="card-header">Будущие отгулы гидов</div>
             <div class="rule-list">
                 <?php if (empty($timeoffs_future)): ?>
                     <div style="text-align:center; padding: 20px; color:var(--text-muted); font-size:13px;">Нет запланированных отгулов.</div>
@@ -502,7 +524,7 @@ function getGuideColor($guideName) {
                             <div class="r-date"><?= date('d.m.Y', strtotime($to['date_off'])) ?> </div>
                             <div class="r-desc"><strong style="color:var(--text-main);"><?= htmlspecialchars($to['guide_name']) ?></strong> — <?= htmlspecialchars($to['reason'] ?: 'Личные дела') ?></div>
                         </div>
-                        <a href="?ym=<?= $ym ?>&del_timeoff=<?= $to['id'] ?>" class="btn-del" title="Удалить отгул" onclick="return confirm('Отменить отгул?');">✕</a>
+                        <form method="POST" onsubmit="return confirm('Отменить отгул?');"><?= formTokenInput() ?><button name="delete_timeoff" value="<?= (int)$to['id'] ?>" class="btn-del" title="Удалить отгул" aria-label="Удалить отгул">✕</button></form>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -520,13 +542,13 @@ function getGuideColor($guideName) {
         </h3>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('tab-generate')">🚌 Добавить тур</button>
-            <button class="tab-btn" onclick="switchTab('tab-rule')" id="btnTabRule">🛑 Исключения</button>
-            <button class="tab-btn" onclick="switchTab('tab-timeoff')">🏖️ Отгулы</button>
+            <button class="tab-btn active" onclick="switchTab('tab-generate')">Добавить тур</button>
+            <button class="tab-btn" onclick="switchTab('tab-rule')" id="btnTabRule">Исключения</button>
+            <button class="tab-btn" onclick="switchTab('tab-timeoff')">Отгулы</button>
         </div>
 
         <div id="tab-generate" class="tab-content active">
-            <form method="POST">
+            <form method="POST"><?= formTokenInput() ?>
                 <input type="hidden" name="add_single_event" value="1">
                 <input type="hidden" name="tour_date" id="addTourDateInp">
                 
@@ -555,7 +577,7 @@ function getGuideColor($guideName) {
         </div>
 
         <div id="tab-rule" class="tab-content">
-            <form method="POST">
+            <form method="POST"><?= formTokenInput() ?>
                 
                 <div style="display:flex; gap:15px;">
                     <div class="form-group" style="flex:1;">
@@ -600,7 +622,7 @@ function getGuideColor($guideName) {
         </div>
 
         <div id="tab-timeoff" class="tab-content">
-            <form method="POST">
+            <form method="POST"><?= formTokenInput() ?>
                 <input type="hidden" name="save_timeoff" value="1">
                 
                 <div class="form-group">
@@ -722,6 +744,9 @@ function getGuideColor($guideName) {
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.cal-cell[data-date]').forEach(cell => cell.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openUnifiedModal(cell.dataset.date); }
+        }));
         const urlParams = new URLSearchParams(window.location.search);
         const msg = urlParams.get('msg');
         if (msg) {
