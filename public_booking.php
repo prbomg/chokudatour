@@ -11,8 +11,9 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
     $name = trim((string)($input['client_name'] ?? ''));
     $phone = normalizePhone($input['phone'] ?? '');
     $email = trim((string)($input['email'] ?? ''));
-    $seats = filter_var($input['seats'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]);
-    if (!$seats || !validTourDate($date) || $name === '' || !preg_match('/^[0-9]{7,15}$/D', $phone) || ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL))) {
+    $notes = trim((string)($input['notes'] ?? ''));
+    $seats = filter_var($input['seats'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 999]]);
+    if (!$seats || !validTourDate($date) || $name === '' || mb_strlen($name) > 255 || !preg_match('/^[0-9]{7,15}$/D', $phone) || mb_strlen($email) > 100 || ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) || mb_strlen($notes) > 1000) {
         throw new InvalidArgumentException('Проверьте дату, имя, телефон, e-mail и количество человек.');
     }
     $pdo->exec('CREATE TABLE IF NOT EXISTS booking_requests (token VARCHAR(64) PRIMARY KEY, participant_id INT NOT NULL)');
@@ -32,7 +33,9 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
         $tour = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$tour) throw new InvalidArgumentException('Выбранный тур недоступен.');
         $group = ($tour['tour_type'] ?? '') === 'Групповая';
+        $maxGroupSize = max(0, (int)($tour['max_group_size'] ?? 0));
         if (!$group && $seats > 4) throw new InvalidArgumentException('Для индивидуальной экскурсии можно указать до 4 человек.');
+        if ($group && $maxGroupSize > 0 && $seats > $maxGroupSize) throw new InvalidArgumentException("В группе доступно не более {$maxGroupSize} мест.");
 
         $days = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'working_days'")->fetchColumn();
         $available = in_array(date('N', strtotime($date)), explode(',', $days ?: ''), true);
@@ -42,7 +45,8 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
         if ($rule && ($rule['tours'] === 'all' || in_array((string)$tourId, explode(',', $rule['tours']), true))) $available = $rule['action_type'] === 'open';
         if (!$available) throw new InvalidArgumentException('Эта дата закрыта для выбранного тура.');
 
-        $eventsStmt = $pdo->prepare('SELECT id, guide, tour_id FROM events WHERE tour_date = ? ORDER BY id');
+        $seatSql = participantSeatsSql($pdo, 'p');
+        $eventsStmt = $pdo->prepare("SELECT e.id,e.guide,e.tour_id,COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seatSql} ELSE 0 END),0) existing_seats FROM events e LEFT JOIN participants p ON p.event_id=e.id WHERE e.tour_date=? GROUP BY e.id,e.guide,e.tour_id ORDER BY e.id");
         $eventsStmt->execute([$date]);
         $events = $eventsStmt->fetchAll(PDO::FETCH_ASSOC);
         $offStmt = $pdo->prepare('SELECT guide_name FROM guide_timeoffs WHERE date_off = ?');
@@ -56,6 +60,7 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
         $sameTour = array_values(array_filter($events, fn($e) => (int)$e['tour_id'] === $tourId));
         if ($group && $sameTour) {
             foreach ($sameTour as $event) {
+                if ($maxGroupSize > 0 && (int)$event['existing_seats'] + $seats > $maxGroupSize) continue;
                 $busy = array_filter($events, fn($other) => $other['guide'] === $event['guide'] && $other['id'] !== $event['id']);
                 if (in_array($event['guide'], $eligible, true) && !$busy) { $eventId = $event['id']; $assigned = $event['guide']; break; }
             }
@@ -63,6 +68,7 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
             $busy = array_column($events, 'guide');
             foreach ($eligible as $guide) if (!in_array($guide, $busy, true)) { $assigned = $guide; break; }
         }
+        if ($assigned === null && $group && $sameTour && $maxGroupSize > 0) throw new InvalidArgumentException('В выбранной группе недостаточно свободных мест.');
         if ($assigned === null) throw new InvalidArgumentException('На эту дату нет доступного гида. Выберите другую дату.');
         $prices = json_decode($tour['prices'] ?? '', true) ?: [];
         $price = (int)($prices[$sourceId] ?? $prices[-1] ?? 0) * ($group ? $seats : 1);
@@ -73,8 +79,8 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
             $eventId = (int)$pdo->lastInsertId();
         }
         $binding = participantSeatBinding($pdo, $seats);
-        $pdo->prepare("INSERT INTO participants (event_id, client_name, {$binding['columns']}, price, phone, email, source, status, notes) VALUES (?, ?, {$binding['placeholders']}, ?, ?, ?, 'Сайт', 'Бронь', ?)")
-            ->execute(array_merge([$eventId, $name], $binding['values'], [$price, $phone, $email, trim((string)($input['notes'] ?? ''))]));
+        $pdo->prepare("INSERT INTO participants (event_id, client_name, {$binding['columns']}, price, phone, email, source, status, notes, ticket_token) VALUES (?, ?, {$binding['placeholders']}, ?, ?, ?, 'Сайт', 'Бронь', ?, ?)")
+            ->execute(array_merge([$eventId, $name], $binding['values'], [$price, $phone, $email, $notes, bin2hex(random_bytes(16))]));
         $participantId = (int)$pdo->lastInsertId();
         $pdo->prepare('INSERT INTO booking_requests (token, participant_id) VALUES (?, ?)')->execute([$token, $participantId]);
         $pdo->commit();

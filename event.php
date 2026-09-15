@@ -64,6 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $seat_binding = participantSeatBinding($pdo, $data['seats']);
             $name_col = in_array('client_name', $part_cols, true) ? 'client_name' : 'name';
             if (isset($_POST['add_participant'])) {
+                assertEventCapacity($pdo, $event_id, $data['seats'], $data['status']);
                 $token_sql = in_array('ticket_token', $part_cols, true) ? ', ticket_token' : '';
                 $params = array_merge([$event_id, $data['name'], $data['phone'], $data['email']], $seat_binding['values'], [$data['price'], $data['source'], $data['status'], $data['notes']]);
                 if ($token_sql) $params[] = bin2hex(random_bytes(16));
@@ -74,6 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $exists = $pdo->prepare('SELECT COUNT(*) FROM participants WHERE id=? AND event_id=?');
             $exists->execute([$participantId, $event_id]);
             if ($participantId < 1 || !$exists->fetchColumn()) throw new InvalidArgumentException('Бронирование не найдено.');
+            assertEventCapacity($pdo, $event_id, $data['seats'], $data['status'], $participantId);
             $pdo->prepare("UPDATE participants SET {$name_col}=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=? AND event_id=?")
                 ->execute(array_merge([$data['name'], $data['phone'], $data['email']], $seat_binding['values'], [$data['price'], $data['source'], $data['status'], $data['notes'], $participantId, $event_id]));
             eventRedirect($event_id, $return_suffix, 'participant_updated');

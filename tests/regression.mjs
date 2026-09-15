@@ -19,6 +19,12 @@ try {
     echo 'OK';` });
   assert.equal(lint.text, 'OK', 'PHP syntax check');
   checks++;
+  const sanitized = await php.run({code:`<?php require '/app/content_security.php'; echo safeRichHtml('<p onclick="bad()">Текст <strong>жирный</strong><script>alert(1)</script><a href="javascript:bad()">ссылка</a></p>');`});
+  assert.ok(sanitized.text.includes('<strong>жирный</strong>'));
+  assert.ok(!sanitized.text.includes('onclick'));
+  assert.ok(!sanitized.text.includes('<script'));
+  assert.ok(!sanitized.text.includes('javascript:'));
+  checks++;
   const homepageActions = await readFile(new URL('../assets/homepage-actions.js', import.meta.url), 'utf8');
   assert.ok(homepageActions.includes("getElementById('participantForm')"));
   assert.ok(!homepageActions.includes("getElementById('formAddParticipant')"));
@@ -188,6 +194,20 @@ try {
   assert.ok(tourCatalog.html.includes('Продукты и программы'));
   assert.ok(tourCatalog.html.includes('name="csrf_token"'));
   checks++;
+  const archivedRoute = await page('route.php', {id:1}, {}, false, {setup:['UPDATE tours_catalog SET is_archived=1 WHERE id=1']});
+  assert.equal(archivedRoute.status,404);
+  assert.ok(archivedRoute.html.includes('больше не доступен'));
+  checks++;
+  const validTicket = await page('ticket.php', {token:'b'.repeat(32)}, {}, false, {setup:[`UPDATE participants SET ticket_token='${'b'.repeat(32)}' WHERE id=1`]});
+  assert.ok(validTicket.html.includes('Тестовый тур'));
+  checks++;
+  const cancelledTicket = await page('ticket.php', {token:'c'.repeat(32)}, {}, false, {setup:[`UPDATE participants SET ticket_token='${'c'.repeat(32)}' WHERE id=3`]});
+  assert.equal(cancelledTicket.status,404);
+  assert.ok(cancelledTicket.html.includes('ссылка недействительна'));
+  checks++;
+  const eventWithTicket = await page('event.php', {id:1}, {}, false, {setup:[`UPDATE participants SET ticket_token='${'d'.repeat(32)}' WHERE id=1`]});
+  assert.ok(eventWithTicket.html.includes(`ticket.php?token=${'d'.repeat(32)}`));
+  checks++;
   const safeTourGet = await page('tours.php', {archive_tour:1});
   assert.equal(Number(safeTourGet.data.tours_catalog[0].is_archived), 0);
   checks++;
@@ -199,6 +219,7 @@ try {
   assert.ok(tourBuilder.html.includes('Конструктор маршрута'));
   assert.ok(tourBuilder.html.includes('name="csrf_token"'));
   assert.ok(tourBuilder.html.includes('tour-builder-workspace.css'));
+  assert.ok(tourBuilder.html.includes('name="max_group_size"'));
   checks++;
   const builderCsrf = await page('tour_builder.php', {id:1}, {save_module_ajax:1,module_id:0,title:'Новый этап',timing:'10:00',content:'Описание',csrf_token:''});
   assert.equal(builderCsrf.status, 403);
@@ -228,8 +249,14 @@ try {
   assert.equal(settingsCsrf.data.booking_sources.length, 2);
   checks++;
   const feed = await page('calendar_feed.php', {token:'fixture-token'});
-  assert.ok(feed.html.includes('историческую усадьбу [Гид А] (3 чел.)'));
-  assert.ok(feed.html.includes('(2 чел.)'));
+  const unfoldedFeed = feed.html.replace(/\r\n /g,'');
+  assert.ok(unfoldedFeed.includes('историческую усадьбу [Гид А] (3 чел.)'));
+  assert.ok(unfoldedFeed.includes('(2 чел.)'));
+  assert.ok(unfoldedFeed.includes('UID:event-5@chokudatour.ru'), 'calendar includes departures without bookings');
+  assert.ok(unfoldedFeed.includes('DTSTART;TZID=Europe/Moscow:20260905T100000'));
+  checks++;
+  const escapedFeed = await page('calendar_feed.php', {token:'fixture-token'}, {}, false, {setup:["UPDATE events SET notes='Строка 1" + "\n" + "SUMMARY:Подмена' WHERE id=1"]});
+  assert.ok(escapedFeed.html.replace(/\r\n /g,'').includes('Строка 1\\nSUMMARY:Подмена'));
   checks++;
   const archive = JSON.parse((await page('index.php', {}, {ajax_load_past:1,offset:0})).html);
   assert.equal(archive.status, 'success');
@@ -316,6 +343,15 @@ try {
     assert.equal(denied.status,403); assert.equal(denied.data.participants.length,6); assert.equal(denied.data.all_events.length,5); checks++;
   }
   const publicFields = {...fields,create_booking:1,tour_id:1,booking_date:'2026-09-05'};
+  const fullGroup = await page('widget.php',{}, {...publicFields,seats:1},false,{setup:["UPDATE tours_catalog SET max_group_size=3 WHERE id=1"]});
+  assert.equal(fullGroup.data.participants.length,6);
+  assert.ok(fullGroup.html.includes('недостаточно свободных мест'));
+  checks++;
+  const manualOverCapacity = await page('event.php',{id:1},{add_participant:1,...fields,seats:1},false,{setup:["UPDATE tours_catalog SET max_group_size=3 WHERE id=1"]});
+  assert.equal(manualOverCapacity.status,422);
+  assert.equal(manualOverCapacity.data.participants.length,6);
+  assert.ok(manualOverCapacity.html.includes('Недостаточно свободных мест'));
+  checks++;
   for (const invalid of [{tour_id:999},{booking_date:'2026-09-04'},{booking_date:'2026-02-30'},{seats:0},{seats:1.5},{email:'bad email'},{phone:'abc'},{booking_token:''},{tour_id:2,seats:5}]) {
     const refused = await page('widget.php',{}, {...publicFields,...invalid});
     assert.equal(refused.data.participants.length,6); assert.equal(refused.data.all_events.length,5); assert.equal(refused.data.notifications.length,0); checks++;
@@ -332,7 +368,7 @@ try {
     assert.equal(refused.data.participants.length,6); assert.equal(refused.data.all_events.length,5); checks++;
   }
   const newPublic = await page('widget.php',{}, {...publicFields,booking_date:'2026-09-08'});
-  assert.equal(newPublic.data.all_events.length,6); assert.equal(newPublic.data.all_events.at(-1).time,'10:00'); assert.ok(!newPublic.html.includes('tourSelect.addEventListener')); checks++;
+  assert.equal(newPublic.data.all_events.length,6); assert.equal(newPublic.data.all_events.at(-1).time,'10:00'); assert.match(newPublic.data.participants.at(-1).ticket_token,/^[a-f0-9]{32}$/); assert.ok(!newPublic.html.includes('tourSelect.addEventListener')); checks++;
   const openOverride = await page('widget.php',{},publicFields,false,{setup:["UPDATE global_settings SET setting_value='' WHERE setting_key='working_days'", "INSERT INTO blocked_dates (block_date,action_type,tours) VALUES ('2026-09-05','open','1')"]});
   assert.equal(openOverride.data.participants.length,7); checks++;
   const individual = await page('widget.php',{}, {...publicFields,tour_id:2,seats:3,booking_date:'2026-09-08'});

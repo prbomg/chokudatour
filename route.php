@@ -4,17 +4,20 @@ error_reporting(E_ALL);
 
 // Подключаем только базу, это публичная страница
 require_once 'db.php';
+require_once __DIR__ . '/content_security.php';
 
 $tour_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($tour_id === 0) {
+    http_response_code(404);
     die("<h2 style='text-align:center; margin-top:50px; font-family:sans-serif; color: #0F172A;'>Маршрут не найден.</h2>");
 }
 
-$stmt = $pdo->prepare("SELECT * FROM tours_catalog WHERE id = ?");
+$stmt = $pdo->prepare("SELECT * FROM tours_catalog WHERE id = ? AND COALESCE(is_archived,0)=0");
 $stmt->execute([$tour_id]);
 $tour = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$tour) {
+    http_response_code(404);
     die("<h2 style='text-align:center; margin-top:50px; font-family:sans-serif; color: #0F172A;'>Извините, этот маршрут больше не доступен.</h2>");
 }
 
@@ -257,7 +260,7 @@ $price_label = ($tour_type === 'Групповая') ? 'Стоимость за 
                         <?php endif; ?>
 
                         <div class="timeline-desc rich-text">
-                            <?= $step['content'] ?>
+                            <?= safeRichHtml($step['content']) ?>
                         </div>
                     </div>
                 </div>

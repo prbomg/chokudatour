@@ -23,6 +23,13 @@ try {
 try { $pdo->exec("ALTER TABLE participants ADD COLUMN phone VARCHAR(50) DEFAULT ''"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE participants ADD COLUMN email VARCHAR(100) DEFAULT ''"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE participants ADD COLUMN notes TEXT"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE participants ADD COLUMN ticket_token VARCHAR(64) DEFAULT NULL"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN max_group_size INT DEFAULT 0"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN is_archived TINYINT(1) DEFAULT 0"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE events ADD COLUMN time VARCHAR(50) DEFAULT ''"); } catch (Exception $e) {}
+$missingTicketTokens = $pdo->query("SELECT id FROM participants WHERE ticket_token IS NULL OR ticket_token='' LIMIT 1000")->fetchAll(PDO::FETCH_COLUMN);
+$ticketTokenUpdate = $pdo->prepare('UPDATE participants SET ticket_token=? WHERE id=?');
+foreach ($missingTicketTokens as $participantId) $ticketTokenUpdate->execute([bin2hex(random_bytes(16)), (int)$participantId]);
 
 // Таблица пользователей с полями для восстановления пароля
 $pdo->exec("CREATE TABLE IF NOT EXISTS users (

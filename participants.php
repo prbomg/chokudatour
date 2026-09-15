@@ -22,6 +22,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])
     try {
         $p_id = (int)$_POST['participant_id'];
         $data = bookingParticipantInput($pdo, $_POST);
+        $eventStmt = $pdo->prepare('SELECT event_id FROM participants WHERE id=?'); $eventStmt->execute([$p_id]);
+        $participantEventId = (int)$eventStmt->fetchColumn();
+        if ($participantEventId < 1) throw new InvalidArgumentException('Бронирование не найдено.');
+        assertEventCapacity($pdo, $participantEventId, $data['seats'], $data['status'], $p_id);
         $seat_binding = participantSeatBinding($pdo, $data['seats']);
         $pdo->prepare("UPDATE participants SET client_name=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=?")
             ->execute(array_merge([$data['name'], $data['phone'], $data['email']], $seat_binding['values'], [$data['price'], $data['source'], $data['status'], $data['notes'], $p_id]));

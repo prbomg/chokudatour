@@ -4,9 +4,14 @@ ini_set('display_errors', 0);
 
 require_once __DIR__ . '/participant_seats.php';
 require_once 'db.php'; // Подключаем только базу данных, без авторизации
+require_once __DIR__ . '/content_security.php';
+header('Cache-Control: private, no-store');
+header('Referrer-Policy: no-referrer');
+header('X-Robots-Tag: noindex, nofollow');
 
 $token = $_GET['token'] ?? '';
-if (empty($token)) {
+if (!is_string($token) || !preg_match('/^[a-f0-9]{32,64}$/D', $token)) {
+    http_response_code(404);
     die("<h2 style='text-align:center; padding:50px; font-family:sans-serif;'>Билет не найден или ссылка устарела.</h2>");
 }
 
@@ -18,13 +23,14 @@ $sql = "SELECT p.*, e.tour_date, e.guide,
         FROM participants p
         JOIN events e ON p.event_id = e.id
         JOIN tours_catalog t ON e.tour_id = t.id
-        WHERE p.ticket_token = ? LIMIT 1";
+        WHERE p.ticket_token = ? AND (p.status IS NULL OR p.status != 'Отмена') LIMIT 1";
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute([$token]);
 $ticket = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$ticket) {
+    http_response_code(404);
     die("<h2 style='text-align:center; padding:50px; font-family:sans-serif;'>Билет не найден или ссылка недействительна.</h2>");
 }
 
@@ -41,10 +47,12 @@ $formatted_date = date('j', $date_timestamp) . ' ' . $months_ru[date('n', $date_
 // Функция для красивого вывода списков
 function renderList($text, $icon) {
     if (empty(trim($text))) return '';
-    $lines = explode("\n", trim($text));
+    $decoded = json_decode((string)$text, true);
+    $lines = is_array($decoded) ? $decoded : explode("\n", trim($text));
     $html = '<ul style="list-style:none; padding:0; margin:0;">';
     foreach($lines as $line) {
-        if(trim($line)) {
+        if (is_scalar($line) && trim((string)$line)) {
+            $line = (string)$line;
             $html .= '<li style="margin-bottom:10px; display:flex; gap:10px; align-items:flex-start;"><span style="flex-shrink:0;">'.$icon.'</span> <span>'.htmlspecialchars(trim($line)).'</span></li>';
         }
     }
@@ -152,7 +160,7 @@ function renderList($text, $icon) {
                         <?php endif; ?>
                         <div class="timeline-title"><?= htmlspecialchars($m['title']) ?></div>
                         <?php if ($m['content']): ?>
-                            <div class="timeline-content"><?= $m['content'] ?></div>
+                            <div class="timeline-content"><?= safeRichHtml($m['content']) ?></div>
                         <?php endif; ?>
                         <?php if ($m['image_path']): ?>
                             <img src="<?= htmlspecialchars($m['image_path']) ?>" class="timeline-img" alt="Фото локации">
@@ -182,7 +190,8 @@ function renderList($text, $icon) {
             <?php if ($ticket['faq_text']): ?>
                 <div class="card-block">
                     <h4>💡 Полезно знать:</h4>
-                    <div class="faq-text"><?= htmlspecialchars($ticket['faq_text']) ?></div>
+                    <?php $faq = json_decode((string)$ticket['faq_text'], true); ?>
+                    <div class="faq-text"><?php if (is_array($faq)): ?><?php foreach ($faq as $item): ?><?php if (is_array($item)): ?><strong><?= htmlspecialchars($item['q'] ?? '') ?></strong><br><?= nl2br(htmlspecialchars($item['a'] ?? '')) ?><br><br><?php endif; ?><?php endforeach; ?><?php else: ?><?= htmlspecialchars($ticket['faq_text']) ?><?php endif; ?></div>
                 </div>
             <?php endif; ?>
         <?php endif; ?>

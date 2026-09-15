@@ -27,7 +27,8 @@ $columns = [
     'prices' => 'TEXT DEFAULT NULL', 'description' => 'TEXT DEFAULT NULL',
     'default_start_time' => "VARCHAR(50) DEFAULT '10:00'",
     'difficulty' => "VARCHAR(255) DEFAULT 'Легкая'",
-    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'", 'images' => 'TEXT DEFAULT NULL'
+    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'", 'images' => 'TEXT DEFAULT NULL',
+    'max_group_size' => 'INT DEFAULT 0'
 ];
 foreach ($columns as $col => $type) {
     try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN $col $type"); } catch(PDOException $e) {}
@@ -148,6 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tour_settings'])
     $name = trim($_POST['name'] ?? '');
     $public_name = trim($_POST['public_name'] ?? '');
     $tour_type = trim($_POST['tour_type'] ?? 'Индивидуальная');
+    $max_group_size = max(0, min(999, (int)($_POST['max_group_size'] ?? 0)));
     $duration = trim($_POST['duration'] ?? '');
     $default_start_time = trim($_POST['default_start_time'] ?? '10:00');
     $difficulty = trim($_POST['difficulty'] ?? 'Легкая');
@@ -198,8 +200,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tour_settings'])
     }
 
     if ($name !== '') {
-        $stmt = $pdo->prepare("UPDATE tours_catalog SET name=?, public_name=?, tour_type=?, duration=?, default_start_time=?, difficulty=?, coordinates=?, description=?, food_options=?, program=?, prices=?, main_image=?, included_text=?, not_included_text=?, faq_text=? WHERE id=?");
-        try { $stmt->execute([$name, $public_name, $tour_type, $duration, $default_start_time, $difficulty, $coordinates, $description, $food_options, $program, $prices_json, $main_image, $included_json, $not_included_json, $faq_json, $tour_id]); }
+        $stmt = $pdo->prepare("UPDATE tours_catalog SET name=?, public_name=?, tour_type=?, max_group_size=?, duration=?, default_start_time=?, difficulty=?, coordinates=?, description=?, food_options=?, program=?, prices=?, main_image=?, included_text=?, not_included_text=?, faq_text=? WHERE id=?");
+        try { $stmt->execute([$name, $public_name, $tour_type, $max_group_size, $duration, $default_start_time, $difficulty, $coordinates, $description, $food_options, $program, $prices_json, $main_image, $included_json, $not_included_json, $faq_json, $tour_id]); }
         catch (Throwable $e) { if ($main_image !== '' && $main_image !== $old_main_image) deleteUploadFile($main_image); throw $e; }
         if (!empty($old_main_image) && $old_main_image !== $main_image) deleteTourImageIfUnused($pdo, $old_main_image);
 
@@ -370,6 +372,12 @@ if (!is_array($faq_items)) {
                             <option value="Индивидуальная" <?= ($tour['tour_type'] ?? 'Индивидуальная') === 'Индивидуальная' ? 'selected' : '' ?>>Индивидуальная (цена за группу)</option>
                             <option value="Групповая" <?= ($tour['tour_type'] ?? '') === 'Групповая' ? 'selected' : '' ?>>Групповая (цена за человека)</option>
                         </select>
+                    </div>
+
+                    <div class="form-group" id="group_capacity_field" style="<?= ($tour['tour_type'] ?? '') === 'Групповая' ? '' : 'display:none;' ?>">
+                        <label>Максимум человек в групповом выезде</label>
+                        <input type="number" name="max_group_size" id="inp_max_group_size" class="t-input" min="0" max="999" value="<?= (int)($tour['max_group_size'] ?? 0) ?>">
+                        <small style="color:var(--text-muted);">0 — без ограничения. Лимит проверяется во всех формах бронирования.</small>
                     </div>
 
                     <div class="form-group">
@@ -592,6 +600,7 @@ if (!is_array($faq_items)) {
     function updatePriceLabels() {
         const type = document.getElementById('inp_tour_type').value;
         const label = document.getElementById('price_section_label');
+        document.getElementById('group_capacity_field').style.display = type === 'Групповая' ? '' : 'none';
         if(type === 'Групповая') {
             label.textContent = 'Источники продаж и Стоимость за 1 человека (₽)';
         } else {

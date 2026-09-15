@@ -13,6 +13,7 @@
     <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c1 .3 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 0 0 6v4h20v-4a3 3 0 0 0 0-6V5H2Z"/><path d="M13 5v2M13 11v2M13 17v2"/></symbol>
 </svg>
 
 <div id="toast-container" aria-live="polite"></div>
@@ -107,6 +108,7 @@
                         <div class="row-actions">
                             <a href="tel:<?= htmlspecialchars($participant['phone'] ?? '', ENT_QUOTES) ?>" class="icon-btn" title="Позвонить" aria-label="Позвонить <?= htmlspecialchars($participantName, ENT_QUOTES) ?>"><svg><use href="#i-phone"/></svg></a>
                             <button type="button" class="icon-btn wa-btn" title="WhatsApp" aria-label="Написать в WhatsApp" data-phone="<?= htmlspecialchars($cleanPhone, ENT_QUOTES) ?>" data-message="<?= htmlspecialchars($message, ENT_QUOTES) ?>"><svg><use href="#i-message"/></svg></button>
+                            <?php if (!$cancelled && !empty($participant['ticket_token'])): ?><a href="ticket.php?token=<?= rawurlencode($participant['ticket_token']) ?>" target="_blank" rel="noopener noreferrer" class="icon-btn" title="Открыть билет" aria-label="Открыть билет туриста"><svg><use href="#i-ticket"/></svg></a><?php endif; ?>
                             <button type="button" class="icon-btn" title="Редактировать" aria-label="Редактировать бронирование" data-edit-participant='<?= htmlspecialchars(json_encode($editData, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>'><svg><use href="#i-edit"/></svg></button>
                             <?php if ($current_user_role === 'admin'): ?><?= deleteControl($event_return_url, 'del_participant', $participantId, 'Удалить туриста?') ?><?php endif; ?>
                         </div>

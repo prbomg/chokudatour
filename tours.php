@@ -30,7 +30,8 @@ $columns = [
     'prices' => 'TEXT DEFAULT NULL', 'description' => 'TEXT DEFAULT NULL',
     'default_start_time' => "VARCHAR(50) DEFAULT '10:00'",
     'is_archived' => "TINYINT(1) DEFAULT 0", 'difficulty' => "VARCHAR(255) DEFAULT 'Легкая'",
-    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'", 'images' => 'TEXT DEFAULT NULL'
+    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'", 'images' => 'TEXT DEFAULT NULL',
+    'max_group_size' => 'INT DEFAULT 0'
 ];
 foreach ($columns as $col => $type) {
     try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN $col $type"); } catch(PDOException $e) {}
@@ -65,9 +66,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duplicate_tour'])) {
                 if ($copy !== '') { $gallery[] = $copy; if ($copy !== (string)$image) $createdFiles[] = $copy; }
             }
             $pdo->prepare("INSERT INTO tours_catalog
-                (name, public_name, tour_type, duration, default_start_time, difficulty, coordinates, sort_order, description, food_options, program, prices, main_image, images, included_text, not_included_text, faq_text)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")->execute([
-                $newName, $tour['public_name'] ?? '', $tour['tour_type'] ?? 'Индивидуальная', $tour['duration'] ?? '', $tour['default_start_time'] ?? '10:00',
+                (name, public_name, tour_type, max_group_size, duration, default_start_time, difficulty, coordinates, sort_order, description, food_options, program, prices, main_image, images, included_text, not_included_text, faq_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")->execute([
+                $newName, $tour['public_name'] ?? '', $tour['tour_type'] ?? 'Индивидуальная', (int)($tour['max_group_size'] ?? 0), $tour['duration'] ?? '', $tour['default_start_time'] ?? '10:00',
                 $tour['difficulty'] ?? 'Легкая', $tour['coordinates'] ?? '', $tour['sort_order'] ?? 0, $tour['description'] ?? '', $tour['food_options'] ?? '',
                 $tour['program'] ?? '', $tour['prices'] ?? '', $mainImage, json_encode($gallery, JSON_UNESCAPED_UNICODE),
                 $tour['included_text'] ?? '', $tour['not_included_text'] ?? '', $tour['faq_text'] ?? ''

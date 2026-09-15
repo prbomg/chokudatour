@@ -17,7 +17,7 @@ $stmt_src->execute();
 $source_id = $stmt_src->fetchColumn() ?: -1;
 
 // Вытаскиваем только активные туры (is_archived = 0) с их типом
-$tours_raw = $pdo->query("SELECT id, name, public_name, tour_type, prices FROM tours_catalog WHERE is_archived = 0 ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$tours_raw = $pdo->query("SELECT id, name, public_name, tour_type, prices, max_group_size FROM tours_catalog WHERE is_archived = 0 ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
 $tours_data_js = [];
 $tours = [];
 foreach ($tours_raw as $t) {
@@ -32,7 +32,8 @@ foreach ($tours_raw as $t) {
     $tours_data_js[$t['id']] = [
         'name' => $display_name,
         'price' => (int)$price,
-        'type' => $t['tour_type']
+        'type' => $t['tour_type'],
+        'maxGroupSize' => (int)($t['max_group_size'] ?? 0)
     ];
 }
 // ----------------------------------------------
@@ -60,7 +61,8 @@ $wd_val = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_k
 $working_days = $wd_val ? explode(',', $wd_val) : [];
 
 // Получаем занятые экскурсии (с tour_id для проверки групповых)
-$busy_events = $pdo->query("SELECT tour_date, guide, tour_id FROM events WHERE tour_date >= CURDATE()")->fetchAll(PDO::FETCH_ASSOC);
+$seat_sql = participantSeatsSql($pdo, 'p');
+$busy_events = $pdo->query("SELECT e.id, e.tour_date, e.guide, e.tour_id, COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seat_sql} ELSE 0 END),0) seats_count FROM events e LEFT JOIN participants p ON p.event_id=e.id WHERE e.tour_date >= CURDATE() GROUP BY e.id,e.tour_date,e.guide,e.tour_id")->fetchAll(PDO::FETCH_ASSOC);
 
 // Загружаем отгулы
 $guide_timeoffs = $pdo->query("SELECT guide_name, date_off FROM guide_timeoffs WHERE date_off >= CURDATE()")->fetchAll(PDO::FETCH_ASSOC);
@@ -246,7 +248,7 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
 
         if (tInfo.type === 'Групповая') {
             paxLabel.textContent = 'Количество человек *';
-            paxInput.removeAttribute('max');
+            if (tInfo.maxGroupSize > 0) paxInput.setAttribute('max', String(tInfo.maxGroupSize)); else paxInput.removeAttribute('max');
             pLabel.textContent = 'Итого к оплате:';
         } else {
             paxLabel.textContent = 'Человек (до 4) *';
@@ -304,6 +306,9 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
                 const dayEvents = allEvents.filter(e => e.tour_date === dateStr);
                 const sameTour = dayEvents.filter(e => String(e.tour_id) === selectedTourId);
                 const joiningGroup = tInfo?.type === 'Групповая' && sameTour.length > 0;
+                const groupHasSpace = !joiningGroup || tInfo.maxGroupSize <= 0 || sameTour.some(e => Number(e.seats_count || 0) < tInfo.maxGroupSize);
+                if (!groupHasSpace) isAvailable = false;
+                if (!isAvailable) { cell.classList.add("disabled"); calendarGrid.appendChild(cell); continue; }
                 isAvailable = allGuides.some(g => {
                     const canDo = g.tours === 'all' || g.tours.includes(selectedTourId);
                     const isOff = guideTimeoffs.some(off => off.date_off === dateStr && off.guide_name === g.name);

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/participant_seats.php';
 
 function bookingStatuses(): array
 {
@@ -38,3 +39,20 @@ function bookingParticipantInput(PDO $pdo, array $input, int $minimumPhoneDigits
 
 function eventStatuses(): array { return bookingStatuses(); }
 function eventParticipantInput(PDO $pdo, array $input): array { return bookingParticipantInput($pdo, $input); }
+
+function assertEventCapacity(PDO $pdo, int $eventId, int $seats, string $status, int $excludeParticipantId = 0): void
+{
+    if ($status === 'Отмена') return;
+    $stmt = $pdo->prepare('SELECT t.tour_type,t.max_group_size FROM events e JOIN tours_catalog t ON t.id=e.tour_id WHERE e.id=?');
+    $stmt->execute([$eventId]);
+    $tour = $stmt->fetch(PDO::FETCH_ASSOC);
+    $limit = (int)($tour['max_group_size'] ?? 0);
+    if (!$tour || ($tour['tour_type'] ?? '') !== 'Групповая' || $limit <= 0) return;
+    $seatSql = participantSeatsSql($pdo, 'p');
+    $sql = "SELECT COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seatSql} ELSE 0 END),0) FROM participants p WHERE p.event_id=?";
+    $params = [$eventId];
+    if ($excludeParticipantId > 0) { $sql .= ' AND p.id!=?'; $params[] = $excludeParticipantId; }
+    $stmt = $pdo->prepare($sql); $stmt->execute($params);
+    $occupied = (int)$stmt->fetchColumn();
+    if ($occupied + $seats > $limit) throw new InvalidArgumentException('Недостаточно свободных мест: доступно ' . max(0, $limit - $occupied) . '.');
+}

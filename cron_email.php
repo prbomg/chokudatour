@@ -7,6 +7,7 @@ require_once __DIR__ . '/db.php';
 $config = appConfig();
 $admin_email = requiredConfig($config, 'ADMIN_EMAIL');
 $secret_token = requiredConfig($config, 'CRON_TOKEN');
+if (!filter_var($admin_email, FILTER_VALIDATE_EMAIL)) { http_response_code(503); die('Некорректно настроен ADMIN_EMAIL.'); }
 if (!isset($_GET['token']) || !is_string($_GET['token']) || !hash_equals($secret_token, $_GET['token'])) {
     http_response_code(403); die('Доступ закрыт.');
 }
@@ -27,7 +28,8 @@ foreach(['time', 'event_time', 'tour_time', 'start_time'] as $col) {
     if(in_array($col, $events_cols)) { $time_col = $col; break; }
 }
 
-$action = $_GET['action'] ?? 'daily'; // daily, weekly, today, tomorrow
+$action = $_GET['action'] ?? 'daily';
+if (!in_array($action, ['daily','today_tomorrow','weekly'], true)) { http_response_code(400); die('Неизвестный режим отчёта.'); }
 
 // === 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 function getTourStartTime($event, $time_col) {
@@ -126,7 +128,7 @@ function renderTourCardHTML($ev, $pdo, $time_col) {
                 }
 
                 // Заметка
-                $note = !empty($p['note']) ? "<div style='color: #64748b; font-size: 14px; margin-top: 8px; background: #f8fafc; padding: 10px 14px; border-radius: 8px; border-left: 3px solid #cbd5e1;'>📝 " . htmlspecialchars($p['note']) . "</div>" : "";
+                $note = !empty($p['notes']) ? "<div style='color: #64748b; font-size: 14px; margin-top: 8px; background: #f8fafc; padding: 10px 14px; border-radius: 8px; border-left: 3px solid #cbd5e1;'>📝 " . htmlspecialchars($p['notes']) . "</div>" : "";
 
                 $fin_pills = array_filter([$p_places, $p_amount]);
                 $fin_html = !empty($fin_pills) ? "<span style='display: inline-block; background: #f1f5f9; color: #475569; font-weight: 700; font-size: 13px; padding: 4px 12px; border-radius: 6px; margin-bottom: 8px;'>" . implode(" &nbsp;•&nbsp; ", $fin_pills) . "</span>" : "";
@@ -200,7 +202,8 @@ function sendStyledEmail($to, $subject, $title_header, $body_content) {
 
     $headers  = "MIME-Version: 1.0\r\n";
     $headers .= "Content-type: text/html; charset=utf-8\r\n";
-    $headers .= "From: CRM Туры <no-reply@" . $_SERVER['HTTP_HOST'] . ">\r\n";
+    $mail_host = preg_replace('/[^a-z0-9.-]/i', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
+    $headers .= "From: CRM Туры <no-reply@" . $mail_host . ">\r\n";
 
     return mail($to, $subject, $message, $headers);
 }
