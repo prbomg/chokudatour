@@ -3,8 +3,10 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once 'auth.php';
+require_once __DIR__ . '/request_helpers.php';
 
-if ($current_user_role !== 'admin') { die("<h2 style='text-align:center; margin-top:50px;'>Доступ закрыт.</h2>"); }
+if ($current_user_role !== 'admin') { http_response_code(403); die("<h2 style='text-align:center; margin-top:50px;'>Доступ закрыт.</h2>"); }
+if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
 $tour_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($tour_id === 0) { header("Location: tours.php"); exit; }
@@ -81,7 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_module_ajax'])) 
     $image_path = '';
     
     if ($module_id > 0) { 
-        $image_path = $pdo->query("SELECT image_path FROM tour_modules WHERE id = $module_id")->fetchColumn() ?: ''; 
+        $stmt_image = $pdo->prepare('SELECT image_path FROM tour_modules WHERE id=? AND tour_id=?');
+        $stmt_image->execute([$module_id, $tour_id]);
+        $image_path = $stmt_image->fetchColumn() ?: '';
     }
     
     // WebP оптимизация для фото этапа
@@ -95,22 +99,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_module_ajax'])) 
     
     if ($title !== '') {
         if ($module_id > 0) { 
-            $pdo->prepare("UPDATE tour_modules SET title=?, timing=?, content=?, image_path=? WHERE id=?")->execute([$title, $timing, $content, $image_path, $module_id]); 
+            $pdo->prepare("UPDATE tour_modules SET title=?, timing=?, content=?, image_path=? WHERE id=? AND tour_id=?")->execute([$title, $timing, $content, $image_path, $module_id, $tour_id]);
         } else { 
             $pdo->prepare("INSERT INTO tour_modules (tour_id, title, timing, content, image_path) VALUES (?, ?, ?, ?, ?)")->execute([$tour_id, $title, $timing, $content, $image_path]); 
             $module_id = $pdo->lastInsertId();
         }
     }
     
-    $saved_module = $pdo->query("SELECT * FROM tour_modules WHERE id = $module_id")->fetch(PDO::FETCH_ASSOC);
+    $stmt_saved = $pdo->prepare('SELECT * FROM tour_modules WHERE id=? AND tour_id=?');
+    $stmt_saved->execute([$module_id, $tour_id]);
+    $saved_module = $stmt_saved->fetch(PDO::FETCH_ASSOC);
     echo json_encode(['status' => 'success', 'module' => $saved_module]);
     exit;
 }
 
-if (isset($_GET['del_module_ajax'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_module_ajax'])) {
     header('Content-Type: application/json');
-    $m_id = (int)$_GET['del_module_ajax'];
-    $img = $pdo->query("SELECT image_path FROM tour_modules WHERE id = $m_id")->fetchColumn();
+    $m_id = (int)$_POST['del_module_ajax'];
+    $stmt_image = $pdo->prepare('SELECT image_path FROM tour_modules WHERE id=? AND tour_id=?');
+    $stmt_image->execute([$m_id, $tour_id]);
+    $img = $stmt_image->fetchColumn();
     if ($img && file_exists($img)) { @unlink($img); }
     $pdo->exec("DELETE FROM tour_modules WHERE id = $m_id AND tour_id = $tour_id");
     echo json_encode(['status' => 'success']);
@@ -310,6 +318,7 @@ if (!is_array($faq_items)) {
             .tour-settings-grid, .builder-grid { grid-template-columns: 1fr; gap: 20px;} 
         }
     </style>
+    <link rel="stylesheet" href="assets/tour-builder-workspace.css?v=<?= (int)@filemtime(__DIR__ . '/assets/tour-builder-workspace.css') ?>">
 </head>
 <body>
 
@@ -318,13 +327,14 @@ if (!is_array($faq_items)) {
 <div class="container">
     <?php include 'navbar.php'; ?>
 
-    <div class="header-box">
-        <a href="tours.php" class="back-link" style="display: inline-flex; align-items: center; gap: 8px; color: var(--primary); text-decoration: none; font-size: 14px; font-weight: 700; margin-bottom: 15px; padding: 8px 16px; background: var(--primary-light); border-radius: 99px;">← Назад в каталог</a>
-        <h2>Настройка: <?= htmlspecialchars($tour['name']) ?></h2>
+    <div class="header-box builder-header">
+        <a href="tours.php" class="back-link">← Назад в каталог</a>
+        <div><span class="eyebrow">Конструктор маршрута</span><h1><?= htmlspecialchars($tour['name']) ?></h1><p>Настройки страницы тура, цены и программа по этапам.</p></div>
+        <a href="route.php?id=<?= $tour_id ?>" target="_blank" class="preview-route">Открыть страницу туриста ↗</a>
     </div>
 
     <div class="card">
-        <form method="POST" enctype="multipart/form-data" id="mainTourForm">
+        <form method="POST" enctype="multipart/form-data" id="mainTourForm"><?= formTokenInput() ?>
             <input type="hidden" name="save_tour_settings" value="1">
             
             <div class="tour-settings-grid">
@@ -474,13 +484,13 @@ if (!is_array($faq_items)) {
             </div>
 
             <div style="border-top: 1px solid var(--border); margin-top: 30px; padding-top: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap:wrap; gap:20px;">
-                <button type="submit" class="btn-save">💾 Сохранить общие настройки</button>
+                <button type="submit" class="btn-save">Сохранить общие настройки</button>
             </div>
         </form>
     </div>
 
     <div class="header-box" style="margin-top: 50px;">
-        <h2>Конструктор маршрута (Этапы)</h2>
+        <div><span class="eyebrow">Программа экскурсии</span><h2>Этапы маршрута</h2><p>Перетаскивайте этапы, чтобы изменить порядок.</p></div>
     </div>
 
     <div class="builder-grid">
@@ -524,7 +534,7 @@ if (!is_array($faq_items)) {
         <div class="editor-box">
             <h3 id="formTitle" class="section-title" style="border:none; margin-bottom:15px; padding:0; justify-content:flex-start;">Добавить этап</h3>
             
-            <form id="ajaxModuleForm">
+            <form id="ajaxModuleForm"><?= formTokenInput() ?>
                 <input type="hidden" name="save_module_ajax" value="1">
                 <input type="hidden" name="module_id" id="fModuleId" value="0">
                 <input type="hidden" name="content" id="fContentHidden">
@@ -563,6 +573,7 @@ if (!is_array($faq_items)) {
 
 <script src="assets/app.js"></script>
 <script>
+    const builderCsrfToken = <?= json_encode(formToken(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     function updatePriceLabels() {
         const type = document.getElementById('inp_tour_type').value;
         const label = document.getElementById('price_section_label');
@@ -697,7 +708,8 @@ if (!is_array($faq_items)) {
     async function deleteModuleAjax(id, btnElement) {
         if(!confirm('Точно удалить этот этап?')) return;
         try {
-            const response = await fetch(`tour_builder.php?id=<?= $tour_id ?>&del_module_ajax=${id}`);
+            const body = new URLSearchParams({del_module_ajax:String(id), csrf_token:builderCsrfToken});
+            const response = await fetch('tour_builder.php?id=<?= $tour_id ?>', {method:'POST', body});
             const result = await response.json();
             if(result.status === 'success') {
                 const card = btnElement.closest('.module-card');
@@ -744,6 +756,7 @@ if (!is_array($faq_items)) {
                 onEnd: function () {
                     const formData = new FormData();
                     formData.append('action', 'update_module_sort');
+                    formData.append('csrf_token', builderCsrfToken);
                     Array.from(list.querySelectorAll('.module-card')).forEach(item => { formData.append('order[]', item.getAttribute('data-id')); });
                     fetch('tour_builder.php?id=<?= $tour_id ?>', { method: 'POST', body: formData }).catch(e => console.error(e));
                 }

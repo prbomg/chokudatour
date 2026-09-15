@@ -17,7 +17,7 @@ class FixturePDO extends PDO
         $this->exec("CREATE TABLE events (id INTEGER PRIMARY KEY, tour_date TEXT, time TEXT DEFAULT '10:00', tour_id INT, guide TEXT, notes TEXT DEFAULT '')");
         $this->exec("CREATE TABLE participants (id INTEGER PRIMARY KEY, event_id INT, client_name TEXT, phone TEXT, email TEXT, seats INT DEFAULT 1, " . ($legacy ? '' : 'places INT DEFAULT 1, ') . "price INT, source TEXT, status TEXT, notes TEXT, ticket_token TEXT)");
         $this->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, event_id INT, amount DECIMAL(10,2), category TEXT, description TEXT, receipt_path TEXT)");
-        $this->exec("CREATE TABLE guides (name TEXT, sort_order INT DEFAULT 0, allowed_tours TEXT, color TEXT)");
+        $this->exec("CREATE TABLE guides (id INTEGER PRIMARY KEY, name TEXT, sort_order INT DEFAULT 0, allowed_tours TEXT, color TEXT)");
         $this->exec("CREATE TABLE booking_sources (id INTEGER PRIMARY KEY, name TEXT, sort_order INT DEFAULT 0)");
         $this->exec("CREATE TABLE booking_statuses (id INTEGER PRIMARY KEY, name TEXT, color TEXT, sort_order INT DEFAULT 0)");
         $this->exec("CREATE TABLE expense_categories (id INTEGER PRIMARY KEY, name TEXT, sort_order INT DEFAULT 0)");

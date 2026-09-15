@@ -60,6 +60,9 @@ try {
           if ($GLOBALS['pdo']->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='client_profiles'")->fetchColumn()) {
             $data['client_profiles'] = $GLOBALS['pdo']->query('SELECT * FROM client_profiles ORDER BY phone')->fetchAll();
           }
+          if ($GLOBALS['pdo']->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tour_modules'")->fetchColumn()) {
+            $data['tour_modules'] = $GLOBALS['pdo']->query('SELECT * FROM tour_modules ORDER BY id')->fetchAll();
+          }
         }
         file_put_contents('/app/result.json', json_encode($data));
       });
@@ -173,6 +176,15 @@ try {
   const tourCsrf = await page('tours.php', {}, {archive_tour:1,csrf_token:''});
   assert.equal(tourCsrf.status, 403);
   assert.equal(Number(tourCsrf.data.tours_catalog[0].is_archived), 0);
+  checks++;
+  const tourBuilder = await page('tour_builder.php', {id:1});
+  assert.ok(tourBuilder.html.includes('Конструктор маршрута'));
+  assert.ok(tourBuilder.html.includes('name="csrf_token"'));
+  assert.ok(tourBuilder.html.includes('tour-builder-workspace.css'));
+  checks++;
+  const builderCsrf = await page('tour_builder.php', {id:1}, {save_module_ajax:1,module_id:0,title:'Новый этап',timing:'10:00',content:'Описание',csrf_token:''});
+  assert.equal(builderCsrf.status, 403);
+  assert.equal((builderCsrf.data.tour_modules ?? []).length, 0);
   checks++;
   const analytics = await page('analytics.php', {date_from:'2026-09-01',date_to:'2026-09-30'});
   assert.equal(analytics.data.total_seats, 6);
