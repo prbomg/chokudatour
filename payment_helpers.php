@@ -61,18 +61,18 @@ function addPayment(PDO $pdo, int $eventId, array $input): int
     } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
 }
 
-function voidPayment(PDO $pdo, int $eventId, int $paymentId): void
+function deletePayment(PDO $pdo, int $eventId, int $paymentId): void
 {
     $stmt = $pdo->prepare('SELECT p.*,pt.client_name FROM payments p JOIN participants pt ON pt.id=p.participant_id WHERE p.id=? AND p.event_id=?');
     $stmt->execute([$paymentId, $eventId]);
     $payment = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$payment) throw new InvalidArgumentException('Платёж не найден.');
-    if (!empty($payment['voided_at'])) throw new InvalidArgumentException('Операция уже аннулирована.');
-    $actor = (string)($GLOBALS['current_user_name'] ?? $_SESSION['user_name'] ?? '');
+    $clientName = (string)$payment['client_name'];
+    unset($payment['client_name']);
     $pdo->beginTransaction();
     try {
-        $pdo->prepare('UPDATE payments SET voided_at=CURRENT_TIMESTAMP,voided_by=? WHERE id=? AND event_id=? AND voided_at IS NULL')->execute([$actor,$paymentId,$eventId]);
-        recordActivity($pdo, 'update', 'payment', $paymentId, 'Аннулирована операция ' . $payment['amount'] . ' ₽: ' . $payment['client_name']);
+        recordActivity($pdo, 'delete', 'payment', $paymentId, 'Удалена платёжная операция ' . $payment['amount'] . ' ₽: ' . $clientName, ['payment'=>$payment]);
+        $pdo->prepare('DELETE FROM payments WHERE id=? AND event_id=?')->execute([$paymentId, $eventId]);
         $pdo->commit();
     } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
 }

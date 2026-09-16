@@ -82,6 +82,11 @@ function restoreActivity(PDO $pdo, int $activityId): string
             if (!activityRow($pdo, 'events', (int)($row['event_id'] ?? 0))) throw new InvalidArgumentException('Сначала восстановите связанный выезд.');
             if (activityRow($pdo, 'expenses', (int)($row['id'] ?? 0))) throw new InvalidArgumentException('Идентификатор расхода уже занят.');
             insertSnapshotRow($pdo, 'expenses', $row);
+        } elseif ($type === 'payment') {
+            $row = $snapshot['payment'] ?? [];
+            if (!activityRow($pdo, 'events', (int)($row['event_id'] ?? 0)) || !activityRow($pdo, 'participants', (int)($row['participant_id'] ?? 0))) throw new InvalidArgumentException('Сначала восстановите связанный выезд и бронирование.');
+            if (activityRow($pdo, 'payments', (int)($row['id'] ?? 0))) throw new InvalidArgumentException('Идентификатор платежа уже занят.');
+            insertSnapshotRow($pdo, 'payments', $row);
         } else {
             throw new InvalidArgumentException('Этот тип записи нельзя восстановить.');
         }

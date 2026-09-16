@@ -103,9 +103,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (isset($_POST['add_payment']) && $current_user_role === 'admin') {
             addPayment($pdo, $event_id, $_POST);
             eventRedirect($event_id, $return_suffix, 'payment_added');
-        } elseif (isset($_POST['void_payment']) && $current_user_role === 'admin') {
-            voidPayment($pdo, $event_id, (int)$_POST['void_payment']);
-            eventRedirect($event_id, $return_suffix, 'payment_voided');
+        } elseif (isset($_POST['delete_payment']) && $current_user_role === 'admin') {
+            deletePayment($pdo, $event_id, (int)$_POST['delete_payment']);
+            eventRedirect($event_id, $return_suffix, 'payment_deleted');
         }
     } catch (InvalidArgumentException $e) {
         http_response_code(422);

@@ -190,9 +190,10 @@ try {
   assert.equal(invalidPayment.data.payments.length, 0);
   assert.ok(invalidPayment.html.includes('положительную сумму'));
   checks++;
-  const voidedPayment = await page('event.php', {id:1}, {void_payment:1}, false, {setup:["INSERT INTO payments (id,event_id,participant_id,operation,amount,method,paid_at) VALUES (1,1,1,'payment',500,'cash','2026-09-05')"]});
-  assert.ok(voidedPayment.data.payments[0].voided_at);
-  assert.equal(voidedPayment.data.activity_log.at(-1).action, 'update');
+  const deletedPayment = await page('event.php', {id:1}, {delete_payment:1}, false, {setup:["INSERT INTO payments (id,event_id,participant_id,operation,amount,method,paid_at) VALUES (1,1,1,'payment',500,'cash','2026-09-05')"]});
+  assert.equal(deletedPayment.data.payments.length, 0);
+  assert.equal(deletedPayment.data.activity_log.at(-1).action, 'delete');
+  assert.equal(JSON.parse(deletedPayment.data.activity_log.at(-1).snapshot).payment.amount, 500);
   checks++;
   const homepageDecimalExpense = await page('index.php', {}, {add_expense:1,event_id:1,amount:'19,95',category:'Прочее',description:'Копейки с главной'});
   assert.equal(Number(homepageDecimalExpense.data.expenses.at(-1).amount), 19.95);
@@ -308,6 +309,13 @@ try {
   assert.equal(restoredParticipant.data.participants.find(p => Number(p.id) === 1).client_name, 'Восстановленный турист');
   assert.ok(restoredParticipant.data.activity_log.find(row => Number(row.id) === 1).restored_at);
   assert.equal(restoredParticipant.data.activity_log.at(-1).action, 'restore');
+  checks++;
+  const paymentRestoreSnapshot = JSON.stringify({payment:{id:7,event_id:1,participant_id:1,operation:'payment',amount:700,method:'cash',paid_at:'2026-09-05',note:'',created_by:'Администратор',created_at:'2026-09-05 12:00:00',voided_at:null,voided_by:null}}).replaceAll("'", "''");
+  const restoredPayment = await page('history.php', {}, {restore_activity:2}, false, {setup:[
+    `INSERT INTO activity_log (id,user_name,action,entity_type,entity_id,summary,snapshot) VALUES (2,'Администратор','delete','payment',7,'Удалён платёж','${paymentRestoreSnapshot}')`
+  ]});
+  assert.equal(restoredPayment.data.payments.find(row => Number(row.id) === 7).amount, 700);
+  assert.ok(restoredPayment.data.activity_log.find(row => Number(row.id) === 2).restored_at);
   checks++;
   const safeSettingsGet = await page('settings.php', {del_source:1});
   assert.equal(safeSettingsGet.data.booking_sources.length, 2);

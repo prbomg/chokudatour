@@ -106,7 +106,7 @@
         expense_added: 'Расход добавлен',
         expense_deleted: 'Расход удалён',
         payment_added: 'Платёжная операция сохранена',
-        payment_voided: 'Платёжная операция аннулирована'
+        payment_deleted: 'Платёжная операция удалена'
     };
     const config = window.eventPageConfig || {};
     if (messages[config.message]) {
