@@ -29,7 +29,7 @@
         <?php endif; ?>
 
         <section class="duplicate-review" id="possible-duplicates">
-            <header><div><span class="eyebrow">Контроль качества базы</span><h2>Возможные дубли</h2><p>Система только предлагает совпадения. Решение об объединении остаётся за вами.</p></div><span class="duplicate-count"><?= count($potential_duplicates) ?></span></header>
+            <header><div><span class="eyebrow">Контроль качества базы</span><h2>Возможные дубли</h2><p>Совпадения определяются только по телефону или e-mail. Решение об объединении остаётся за вами.</p></div><span class="duplicate-count"><?= count($potential_duplicates) ?></span></header>
             <?php if ($potential_duplicates): ?><div class="duplicate-list">
                 <?php foreach ($potential_duplicates as $duplicate):
                     $primary = $duplicate['primary']; $candidate = $duplicate['candidate'];

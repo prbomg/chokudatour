@@ -43,12 +43,6 @@ function clientListUrl(array $input): string
     return 'clients.php' . ($query === '' ? '' : '?' . $query);
 }
 
-function clientIdentityName(string $name): string
-{
-    $name = mb_strtolower(trim($name));
-    return preg_replace('/[^\p{L}\p{N}]+/u', '', $name) ?? '';
-}
-
 function clientPotentialDuplicates(array $clients, int $limit = 50): array
 {
     $result = [];
@@ -60,8 +54,6 @@ function clientPotentialDuplicates(array $clients, int $limit = 50): array
             $rightPhone = normalizePhone($right['phone'] ?? '');
             $leftEmail = mb_strtolower(trim((string)($left['email'] ?? '')));
             $rightEmail = mb_strtolower(trim((string)($right['email'] ?? '')));
-            $leftName = clientIdentityName((string)($left['client_name'] ?? ''));
-            $rightName = clientIdentityName((string)($right['client_name'] ?? ''));
             $reasons = []; $score = 0;
 
             if ($leftPhone !== '' && $leftPhone === $rightPhone && (string)$left['phone'] !== (string)$right['phone']) {
@@ -69,16 +61,6 @@ function clientPotentialDuplicates(array $clients, int $limit = 50): array
             }
             if ($leftEmail !== '' && $leftEmail === $rightEmail) {
                 $reasons[] = 'Одинаковый e-mail'; $score = max($score, 90);
-            }
-            $sameLastDigits = strlen($leftPhone) >= 4 && substr($leftPhone, -4) === substr($rightPhone, -4);
-            $nameSimilarity = 0.0;
-            if ($leftName !== '' && $rightName !== '') similar_text($leftName, $rightName, $nameSimilarity);
-            $similarName = $leftName !== '' && $rightName !== '' && $leftName !== $rightName && $nameSimilarity >= 82;
-            if ($similarName && $sameLastDigits) {
-                $reasons[] = 'Похожее имя и последние цифры телефона'; $score = max($score, 70);
-            }
-            if ($leftName !== '' && $leftName === $rightName && ($leftPhone !== $rightPhone || $leftEmail !== $rightEmail)) {
-                $reasons[] = 'Одинаковое имя при разных контактах'; $score = max($score, 40);
             }
             if (!$reasons) continue;
             $leftCanonical = (string)$left['phone'] === $leftPhone;

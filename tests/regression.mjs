@@ -177,7 +177,10 @@ try {
     "UPDATE participants SET phone='75551112222',client_name='Мария Петрова',email='maria-a@example.invalid' WHERE id=5",
     "UPDATE participants SET phone='74441113333',client_name='Мария Петрова',email='maria-b@example.invalid' WHERE id=6"
   ]});
-  for (const reason of ['Один номер в разных форматах','Одинаковый e-mail','Похожее имя и последние цифры телефона','Одинаковое имя при разных контактах']) assert.ok(duplicateSignals.html.includes(reason), reason);
+  for (const reason of ['Один номер в разных форматах','Одинаковый e-mail']) assert.ok(duplicateSignals.html.includes(reason), reason);
+  for (const removedReason of ['Похожее имя и последние цифры телефона','Одинаковое имя при разных контактах']) assert.ok(!duplicateSignals.html.includes(removedReason), removedReason);
+  assert.match(duplicateSignals.html, /class="duplicate-count">2<\/span>/);
+  assert.ok(duplicateSignals.html.includes('только по телефону или e-mail'));
   checks++;
   const reviewedDuplicate = await page('client.php', {phone:'70000000000',merge_phone:'+7 (000) 000-00-00'}, {}, false, {setup:["UPDATE participants SET phone='+7 (000) 000-00-00' WHERE id=1"]});
   assert.ok(reviewedDuplicate.html.includes('"reviewMerge":true'));
