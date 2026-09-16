@@ -258,6 +258,9 @@ try {
   const history = await page('history.php');
   assert.ok(history.html.includes('История изменений'));
   assert.ok(history.html.includes('Последние 200 действий'));
+  assert.ok(history.html.includes('assets/history-workspace.css'));
+  assert.ok(history.html.includes('class="container"'));
+  assert.ok(history.html.includes('class="eyebrow"'));
   checks++;
   const restoreSnapshot = JSON.stringify({participant:{id:1,event_id:1,client_name:'Восстановленный турист',phone:'70000000001',email:'',seats:1,places:1,price:1200,source:'CRM',status:'Бронь',notes:'',ticket_token:'restore-token'}}).replaceAll("'", "''");
   const restoredParticipant = await page('history.php', {}, {restore_activity:1}, false, {setup:[
