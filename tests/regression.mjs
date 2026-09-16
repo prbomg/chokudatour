@@ -25,13 +25,34 @@ try {
   assert.ok(!sanitized.text.includes('<script'));
   assert.ok(!sanitized.text.includes('javascript:'));
   checks++;
+  const migrationRun = await php.run({code:`<?php
+    require '/app/migrations.php';
+    $database = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+    $first = runDatabaseMigrations($database);
+    $second = runDatabaseMigrations($database);
+    echo json_encode([
+      'first'=>$first,
+      'second'=>$second,
+      'version'=>databaseSchemaVersion($database),
+      'recorded'=>(int)$database->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn(),
+      'client_tags'=>(string)$database->query("SELECT setting_value FROM global_settings WHERE setting_key='client_tags'")->fetchColumn(),
+      'tables'=>(int)$database->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('events','participants','payments','activity_log')")->fetchColumn(),
+    ], JSON_UNESCAPED_UNICODE);`});
+  const migrationResult = JSON.parse(migrationRun.text);
+  assert.deepEqual(migrationResult.first, [1,2,3,4,5]);
+  assert.deepEqual(migrationResult.second, []);
+  assert.equal(migrationResult.version, 5);
+  assert.equal(migrationResult.recorded, 5);
+  assert.equal(migrationResult.tables, 4);
+  assert.ok(migrationResult.client_tags.includes('VIP'));
+  checks++;
   const homepageActions = await readFile(new URL('../assets/homepage-actions.js', import.meta.url), 'utf8');
   assert.ok(homepageActions.includes("getElementById('participantForm')"));
   assert.ok(!homepageActions.includes("getElementById('formAddParticipant')"));
   checks++;
   php.writeFile('/app/fixture.php', await readFile(new URL('fixture.php', import.meta.url)));
   php.writeFile('/app/auth.php', "<?php require_once __DIR__ . '/fixture.php';");
-  php.writeFile('/app/db.php', "<?php require_once __DIR__ . '/fixture.php';");
+  php.writeFile('/app/db.php', "<?php require_once __DIR__ . '/fixture.php'; require_once __DIR__ . '/migrations.php'; runDatabaseMigrations($pdo);");
   php.writeFile('/app/telegram.php', `<?php function sendTelegramMessage($message) { $GLOBALS['notifications'][] = ['message'=>$message, 'events'=>(int)$GLOBALS['pdo']->query('SELECT COUNT(*) FROM events')->fetchColumn()]; if (!empty($GLOBALS['notification_error'])) throw new RuntimeException('Offline'); return true; }`);
 
   async function page(name, get = {}, post = {}, legacy = false, options = {}) {
@@ -49,6 +70,8 @@ try {
       $GLOBALS['fixture_name'] = $input['options']['name'] ?? 'Тестовый администратор';
       $GLOBALS['notification_error'] = $input['options']['notificationError'] ?? false;
       require_once 'fixture.php';
+      require_once 'migrations.php';
+      runDatabaseMigrations($pdo);
       foreach ($input['options']['setup'] ?? [] as $sql) $pdo->exec($sql);
       register_shutdown_function(function() {
         $data = ['error' => error_get_last()];
@@ -167,7 +190,7 @@ try {
   assert.ok(filteredClientList.html.includes('return_to=clients.php%3Fsearch%3D'));
   assert.ok(filteredClientList.html.includes('%26tour_id%3D1'));
   checks++;
-  const exactTagFilter = await page('clients.php', {tag:'VIP'}, {}, false, {setup:["CREATE TABLE client_profiles (phone TEXT PRIMARY KEY,tags TEXT,global_note TEXT)","INSERT INTO client_profiles VALUES ('70000000000','VIP2','')"]});
+  const exactTagFilter = await page('clients.php', {tag:'VIP'}, {}, false, {setup:["INSERT INTO client_profiles VALUES ('70000000000','VIP2','')"]});
   assert.ok(exactTagFilter.html.includes('Клиенты не найдены'));
   checks++;
   const savedClient = await page('client.php', {phone:'70000000000'}, {update_profile:1,tags:['VIP'],custom_tag:'Из Москвы',global_note:'Сидит впереди'});
@@ -177,7 +200,6 @@ try {
   checks++;
   const mergedClient = await page('client.php', {phone:'70000000000'}, {merge_client:1,source_phone:'79991234567'}, false, {setup:[
     "UPDATE participants SET phone='79991234567',client_name='Дубль туриста' WHERE id=2",
-    "CREATE TABLE client_profiles (phone TEXT PRIMARY KEY,tags TEXT,global_note TEXT)",
     "INSERT INTO client_profiles VALUES ('70000000000','VIP','Основная заметка')",
     "INSERT INTO client_profiles VALUES ('79991234567','Семья с детьми','Заметка дубля')"
   ]});
@@ -486,7 +508,7 @@ try {
   assert.equal(individual.data.participants.at(-1).price,2000); assert.equal(individual.data.all_events.at(-1).time,'11:00'); checks++;
   const rollbackPublic = await page('widget.php',{}, {...publicFields,booking_date:'2026-09-08'},false,{setup:["CREATE TRIGGER fail_booking BEFORE INSERT ON participants BEGIN SELECT RAISE(ABORT,'test failure'); END"]});
   assert.equal(rollbackPublic.data.all_events.length,5); checks++;
-  const duplicate = await page('widget.php',{},publicFields,false,{setup:["CREATE TABLE booking_requests (token VARCHAR(64) PRIMARY KEY, participant_id INT)",`INSERT INTO booking_requests VALUES ('${'a'.repeat(64)}',1)`]});
+  const duplicate = await page('widget.php',{},publicFields,false,{setup:[`INSERT INTO booking_requests VALUES ('${'a'.repeat(64)}',1)`]});
   assert.equal(duplicate.data.participants.length,6); assert.equal(duplicate.data.notifications.length,0); assert.ok(duplicate.html.includes('уже принята')); checks++;
   for (const legacy of [false,true]) {
     for (const [name,get,post,isNew] of [

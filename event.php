@@ -22,15 +22,6 @@ $date_col = in_array('tour_date', $events_cols, true) ? 'tour_date' : (in_array(
 $guide_col = in_array('guide', $events_cols, true) ? 'guide' : 'guide_id';
 $time_col = 'time';
 $part_cols = $pdo->query('SHOW COLUMNS FROM participants')->fetchAll(PDO::FETCH_COLUMN);
-if (!in_array('price', $part_cols, true)) {
-    try { $pdo->exec('ALTER TABLE participants ADD COLUMN price INT DEFAULT 0'); } catch (PDOException $e) {}
-}
-
-$pdo->exec('CREATE TABLE IF NOT EXISTS booking_sources (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, sort_order INT DEFAULT 999)');
-if ((int)$pdo->query('SELECT COUNT(*) FROM booking_sources')->fetchColumn() === 0) {
-    $pdo->exec("INSERT INTO booking_sources (name, sort_order) VALUES ('Прямые',1),('Трипстер',2),('Спутник 8',3),('CRM',4),('Сайт',5)");
-}
-
 function eventMoney($amount): string
 {
     $value = (float)$amount;

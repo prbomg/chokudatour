@@ -18,22 +18,6 @@ function getSourceColor($name) {
     return $colors[abs($hash) % count($colors)];
 }
 
-$pdo->exec("CREATE TABLE IF NOT EXISTS tour_modules (id INT AUTO_INCREMENT PRIMARY KEY, tour_id INT NOT NULL, title VARCHAR(255) NOT NULL, timing VARCHAR(255) DEFAULT NULL, content TEXT DEFAULT NULL, image_path VARCHAR(255) DEFAULT NULL, sort_order INT DEFAULT 999)");
-
-$columns = [
-    'included_text' => 'TEXT DEFAULT NULL', 'not_included_text' => 'TEXT DEFAULT NULL', 
-    'faq_text' => 'TEXT DEFAULT NULL', 'food_options' => 'TEXT DEFAULT NULL', 
-    'program' => 'TEXT DEFAULT NULL', 'main_image' => 'VARCHAR(255) DEFAULT NULL',
-    'prices' => 'TEXT DEFAULT NULL', 'description' => 'TEXT DEFAULT NULL',
-    'default_start_time' => "VARCHAR(50) DEFAULT '10:00'",
-    'difficulty' => "VARCHAR(255) DEFAULT 'Легкая'",
-    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'", 'images' => 'TEXT DEFAULT NULL',
-    'max_group_size' => 'INT DEFAULT 0'
-];
-foreach ($columns as $col => $type) {
-    try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN $col $type"); } catch(PDOException $e) {}
-}
-
 // --- ФУНКЦИЯ ДЛЯ СЖАТИЯ И КОНВЕРТАЦИИ В WebP ---
 function optimizeImageToWebp($tmpName, $prefix) {
     $info = @getimagesize($tmpName);

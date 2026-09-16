@@ -16,7 +16,6 @@ if (isset($_SESSION['user_id'])) {
 }
 
 $error = '';
-$pdo->exec('CREATE TABLE IF NOT EXISTS login_attempts (id INT AUTO_INCREMENT PRIMARY KEY, attempt_key CHAR(64) NOT NULL, attempted_at DATETIME NOT NULL, INDEX attempt_key_idx (attempt_key))');
 $pdo->exec('DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)');
 
 // Обработка формы входа

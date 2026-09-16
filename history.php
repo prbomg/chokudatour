@@ -4,7 +4,6 @@ require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/activity_log.php';
 
 if ($current_user_role !== 'admin') { http_response_code(403); exit('Доступ запрещён.'); }
-ensureActivityLog($pdo);
 $page_error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['restore_activity'])) {

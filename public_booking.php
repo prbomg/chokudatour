@@ -17,7 +17,6 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
     if (!$seats || !validTourDate($date) || $name === '' || mb_strlen($name) > 255 || !preg_match('/^\+[0-9]{7,15}$/D', $phone) || mb_strlen($email) > 100 || ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) || mb_strlen($notes) > 1000) {
         throw new InvalidArgumentException('Проверьте дату, имя, телефон, e-mail и количество человек.');
     }
-    $pdo->exec('CREATE TABLE IF NOT EXISTS booking_requests (token VARCHAR(64) PRIMARY KEY, participant_id INT NOT NULL)');
     $pdo->beginTransaction();
     try {
         // Serialize public bookings through the small guide roster. Two requests

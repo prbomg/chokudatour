@@ -17,7 +17,6 @@ $return_url = clientReturnUrl($_GET['return_to'] ?? 'clients.php');
 $return_suffix = isset($_GET['return_to']) ? '&return_to=' . rawurlencode($return_url) : '';
 $return_is_event = str_starts_with($return_url, 'event.php?');
 $profile_url = 'client.php?phone=' . rawurlencode($phone) . $return_suffix;
-ensureClientWorkspace($pdo);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
 $part_cols = $pdo->query('SHOW COLUMNS FROM participants')->fetchAll(PDO::FETCH_COLUMN);

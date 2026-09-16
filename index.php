@@ -28,15 +28,6 @@ function getGuideColorStyle($guideName) {
 
 $pdo->exec("SET SESSION group_concat_max_len = 10000;");
 
-// --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДАННЫХ ---
-try { $pdo->exec("ALTER TABLE expenses ADD COLUMN category VARCHAR(255) DEFAULT 'Прочее'"); } catch(PDOException $e) {}
-try { $pdo->exec("ALTER TABLE expenses ADD COLUMN description TEXT DEFAULT NULL"); } catch(PDOException $e) {}
-try { $pdo->exec("ALTER TABLE expenses ADD COLUMN receipt_path VARCHAR(255) DEFAULT NULL"); } catch(PDOException $e) {}
-
-// НОВЫЕ КОЛОНКИ ДЛЯ ВРЕМЕНИ
-try { $pdo->exec("ALTER TABLE events ADD COLUMN time VARCHAR(50) DEFAULT ''"); } catch(PDOException $e) {}
-try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN default_start_time VARCHAR(50) DEFAULT '10:00'"); } catch(PDOException $e) {}
-
 // Изменение выездов: проверки и запись выполняются до уведомления.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_event']) && $current_user_role === 'admin') {
     $del_id = (int)$_POST['delete_event'];

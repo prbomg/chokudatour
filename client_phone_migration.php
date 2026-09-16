@@ -4,7 +4,6 @@ require_once __DIR__ . '/client_workspace_helpers.php';
 
 function normalizeStoredClientPhones(PDO $pdo): void
 {
-    ensureClientWorkspace($pdo);
     $phones = $pdo->query("SELECT DISTINCT phone FROM participants WHERE COALESCE(phone,'')!=''")->fetchAll(PDO::FETCH_COLUMN);
     foreach ($phones as $old) {
         $old = (string)$old; $normalized = normalizePhone($old);

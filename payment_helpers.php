@@ -1,24 +1,6 @@
 <?php
 require_once __DIR__ . '/activity_log.php';
 
-function ensurePaymentsTable(PDO $pdo): void
-{
-    $pdo->exec("CREATE TABLE IF NOT EXISTS payments (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        event_id INT NOT NULL,
-        participant_id INT NOT NULL,
-        operation VARCHAR(20) NOT NULL DEFAULT 'payment',
-        amount DECIMAL(10,2) NOT NULL,
-        method VARCHAR(30) NOT NULL DEFAULT 'cash',
-        paid_at DATE NOT NULL,
-        note VARCHAR(500) DEFAULT '',
-        created_by VARCHAR(100) DEFAULT '',
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        voided_at DATETIME DEFAULT NULL,
-        voided_by VARCHAR(100) DEFAULT NULL
-    )");
-}
-
 function paymentMethods(): array
 {
     return ['cash'=>'Наличные','card'=>'Карта / перевод','online'=>'Онлайн-оплата','other'=>'Другое'];

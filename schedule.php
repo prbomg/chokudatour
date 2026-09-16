@@ -14,18 +14,6 @@ if ($current_user_role !== 'admin') {
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
-// --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДАННЫХ ---
-try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS global_settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value TEXT)");
-    $pdo->exec("INSERT IGNORE INTO global_settings (setting_key, setting_value) VALUES ('working_days', '2,3,4,5,6,7')");
-    $pdo->exec("ALTER TABLE blocked_dates ADD COLUMN action_type ENUM('close', 'open') NOT NULL DEFAULT 'close'");
-    $pdo->exec("ALTER TABLE blocked_dates ADD COLUMN tours VARCHAR(255) DEFAULT 'all'");
-} catch (PDOException $e) {}
-
-try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS guide_timeoffs (id INT AUTO_INCREMENT PRIMARY KEY, guide_name VARCHAR(255) NOT NULL, date_off DATE NOT NULL, reason VARCHAR(255))");
-} catch (PDOException $e) {}
-
 $ym = (string)($_GET['ym'] ?? date('Y-m'));
 if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $ym)) $ym = date('Y-m');
 

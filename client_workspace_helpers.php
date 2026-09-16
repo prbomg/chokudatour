@@ -1,16 +1,5 @@
 <?php
 
-function ensureClientWorkspace(PDO $pdo): void
-{
-    $pdo->exec("CREATE TABLE IF NOT EXISTS client_profiles (phone VARCHAR(50) PRIMARY KEY, tags VARCHAR(255) DEFAULT '', global_note TEXT DEFAULT '')");
-    $pdo->exec("CREATE TABLE IF NOT EXISTS global_settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value TEXT)");
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM global_settings WHERE setting_key='client_tags'");
-    $stmt->execute();
-    if (!$stmt->fetchColumn()) {
-        $pdo->prepare('INSERT INTO global_settings (setting_key, setting_value) VALUES (?, ?)')->execute(['client_tags', 'VIP,Лояльный,Семья с детьми,Сложный клиент,Черный список']);
-    }
-}
-
 function clientTagsFromString($value): array
 {
     return array_values(array_unique(array_filter(array_map('trim', explode(',', (string)$value)))));

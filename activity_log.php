@@ -1,22 +1,5 @@
 <?php
 
-function ensureActivityLog(PDO $pdo): void
-{
-    $pdo->exec("CREATE TABLE IF NOT EXISTS activity_log (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT DEFAULT NULL,
-        user_name VARCHAR(100) NOT NULL DEFAULT '',
-        action VARCHAR(30) NOT NULL,
-        entity_type VARCHAR(30) NOT NULL,
-        entity_id INT DEFAULT NULL,
-        summary VARCHAR(255) NOT NULL DEFAULT '',
-        snapshot LONGTEXT DEFAULT NULL,
-        restored_at DATETIME DEFAULT NULL,
-        restored_by VARCHAR(100) DEFAULT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )");
-}
-
 function recordActivity(PDO $pdo, string $action, string $entityType, ?int $entityId, string $summary, ?array $snapshot = null): int
 {
     $stmt = $pdo->prepare('INSERT INTO activity_log (user_id,user_name,action,entity_type,entity_id,summary,snapshot) VALUES (?,?,?,?,?,?,?)');
@@ -52,7 +35,6 @@ function insertSnapshotRow(PDO $pdo, string $table, array $row): void
 
 function restoreActivity(PDO $pdo, int $activityId): string
 {
-    ensureActivityLog($pdo);
     $pdo->beginTransaction();
     try {
         $stmt = $pdo->prepare("SELECT * FROM activity_log WHERE id=? AND action='delete' FOR UPDATE");

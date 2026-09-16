@@ -19,24 +19,6 @@ function getSourceColor($name) {
     return $colors[abs($hash) % count($colors)];
 }
 
-// --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДАННЫХ ---
-$pdo->exec("CREATE TABLE IF NOT EXISTS tours_catalog (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, public_name VARCHAR(255) DEFAULT NULL, duration VARCHAR(100) DEFAULT NULL, coordinates VARCHAR(255) DEFAULT NULL, sort_order INT DEFAULT 0)");
-$pdo->exec("CREATE TABLE IF NOT EXISTS tour_modules (id INT AUTO_INCREMENT PRIMARY KEY, tour_id INT NOT NULL, title VARCHAR(255) NOT NULL, timing VARCHAR(255) DEFAULT NULL, content TEXT DEFAULT NULL, image_path VARCHAR(255) DEFAULT NULL, sort_order INT DEFAULT 999)");
-
-$columns = [
-    'included_text' => 'TEXT DEFAULT NULL', 'not_included_text' => 'TEXT DEFAULT NULL', 
-    'faq_text' => 'TEXT DEFAULT NULL', 'food_options' => 'TEXT DEFAULT NULL', 
-    'program' => 'TEXT DEFAULT NULL', 'main_image' => 'VARCHAR(255) DEFAULT NULL',
-    'prices' => 'TEXT DEFAULT NULL', 'description' => 'TEXT DEFAULT NULL',
-    'default_start_time' => "VARCHAR(50) DEFAULT '10:00'",
-    'is_archived' => "TINYINT(1) DEFAULT 0", 'difficulty' => "VARCHAR(255) DEFAULT 'Легкая'",
-    'tour_type' => "VARCHAR(50) DEFAULT 'Индивидуальная'", 'images' => 'TEXT DEFAULT NULL',
-    'max_group_size' => 'INT DEFAULT 0'
-];
-foreach ($columns as $col => $type) {
-    try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN $col $type"); } catch(PDOException $e) {}
-}
-
 // --- БЫСТРОЕ СОЗДАНИЕ ПУСТОГО ТУРА ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_tour'])) {
     $pdo->prepare("INSERT INTO tours_catalog (name, sort_order) VALUES ('Новый маршрут', 999)")->execute();

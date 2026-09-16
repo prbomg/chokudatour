@@ -7,7 +7,6 @@ require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/client_workspace_helpers.php';
 require_once __DIR__ . '/client_phone_migration.php';
 if ($current_user_role !== 'admin') { http_response_code(403); exit('Доступ закрыт.'); }
-ensureClientWorkspace($pdo);
 
 $part_cols = $pdo->query('SHOW COLUMNS FROM participants')->fetchAll(PDO::FETCH_COLUMN);
 $name_col = in_array('client_name', $part_cols, true) ? 'client_name' : 'name';

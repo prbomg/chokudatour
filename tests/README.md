@@ -17,7 +17,7 @@ Functional corrections also cover archive tour/guide filters and stable paginati
 
 For interactive checks, run `node tests/serve.mjs` from the repository root and open http://127.0.0.1:8765/index.php. This server binds only to localhost, replaces authentication/database/Telegram, and uses a disposable SQLite database inside WebAssembly. Restart it after PHP edits.
 
-Public booking creates a `booking_requests` table to remember submitted tokens. The database account needs CREATE permission; events, participants, guides and booking_requests must use a transactional engine (InnoDB). MySQL locking/concurrent requests still require staging verification; SQLite tests cannot validate row locks. No production database or notifications are used by these checks.
+The regression suite verifies a fresh migration run, the recorded schema version and an idempotent second run. The database account needs CREATE and ALTER permission while migrations are pending; transactional application tables should use InnoDB. MySQL migration locks and concurrent requests still require staging verification because SQLite cannot validate them. No production database or notifications are used by these checks.
 
 Browser verification: tour + guide filter, two history loads (10 departures), client profile and return, archived inline edit and return, manual time, sorting, quick date preserving filters, cancel editing, and mobile edit controls at 320/390/768 px. At 1024 px the desktop table retains its own horizontal scrolling.
 

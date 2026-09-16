@@ -12,11 +12,6 @@ if ($current_user_role !== 'admin') {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
-// --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДАННЫХ ---
-$pdo->exec("CREATE TABLE IF NOT EXISTS global_settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value TEXT)");
-try { $pdo->exec("ALTER TABLE guides ADD COLUMN sync_token VARCHAR(64) DEFAULT NULL"); } catch(PDOException $e) {}
-try { $pdo->exec("ALTER TABLE guides ADD COLUMN phone VARCHAR(50) DEFAULT ''"); } catch(PDOException $e) {}
-
 function ensureGuideSyncTokens(PDO $pdo): void {
     $missing = $pdo->query("SELECT id FROM guides WHERE sync_token IS NULL OR sync_token = ''")->fetchAll(PDO::FETCH_COLUMN);
     $update = $pdo->prepare('UPDATE guides SET sync_token = ? WHERE id = ?');
@@ -24,21 +19,12 @@ function ensureGuideSyncTokens(PDO $pdo): void {
 }
 ensureGuideSyncTokens($pdo);
 
-// Таблица Источников продаж
-$pdo->exec("CREATE TABLE IF NOT EXISTS booking_sources (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, sort_order INT DEFAULT 999)");
-$count_sources = $pdo->query("SELECT COUNT(*) FROM booking_sources")->fetchColumn();
-if ($count_sources == 0) {
-    $pdo->exec("INSERT INTO booking_sources (name, sort_order) VALUES ('Прямые', 1), ('Трипстер', 2), ('Спутник 8', 3), ('CRM', 4), ('Сайт', 5)");
-}
-
 // Токен Админа для календаря
 $admin_sync_token = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'admin_sync_token'")->fetchColumn();
 if (!$admin_sync_token) {
     $admin_sync_token = bin2hex(random_bytes(16));
     $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES ('admin_sync_token', ?)")->execute([$admin_sync_token]);
 }
-// -----------------------------------
-
 // --- СОРТИРОВКА AJAX ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_sort') {
     $table = $_POST['table'] ?? '';

@@ -13,7 +13,6 @@ if (!isset($_GET['token']) || !is_string($_GET['token']) || !hash_equals($secret
 }
 
 // Авто-добавление колонки дефолтного времени в tours_catalog
-try { $pdo->exec("ALTER TABLE tours_catalog ADD COLUMN default_start_time VARCHAR(50) DEFAULT '10:00'"); } catch(PDOException $e) {}
 
 // === 3. УМНЫЙ ПОИСК КОЛОНОК ===
 $events_cols = $pdo->query("SHOW COLUMNS FROM events")->fetchAll(PDO::FETCH_COLUMN);
