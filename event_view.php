@@ -35,13 +35,15 @@
                     <h1><?= htmlspecialchars($event['public_name'] ?: $event['tour_name']) ?></h1>
                 </div>
                 <?php if ($current_user_role === 'admin'): ?>
-                    <button type="button" class="btn btn-secondary" data-open-dialog="eventDialog"><svg><use href="#i-edit"/></svg>Изменить</button>
+                    <?php $completion_text="Подтвердить, что выезд прошёл?\n\nБронирования: ".eventMoney($total_revenue)."\nПредоплаты: ".eventMoney($total_received)."\nРасходы: ".eventMoney($total_expenses)."\nПрибыль: ".eventMoney($total_revenue-$total_expenses); ?>
+                    <div class="event-heading-actions"><?php if (!empty($event['completed_at'])): ?><form method="post" onsubmit="return confirm('Вернуть выезд в рабочий список?')"><?= formTokenInput() ?><button class="btn btn-quiet" name="reopen_event" value="1">Вернуть в работу</button></form><?php elseif ($event[$date_col] <= date('Y-m-d')): ?><form method="post" onsubmit="return confirm(<?= htmlspecialchars(json_encode($completion_text, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)"><?= formTokenInput() ?><button class="btn btn-primary" name="complete_event" value="1">✓ Выезд прошёл</button></form><?php endif; ?><button type="button" class="btn btn-secondary" data-open-dialog="eventDialog"><svg><use href="#i-edit"/></svg>Изменить</button></div>
                 <?php endif; ?>
             </div>
 
             <div class="event-facts">
                 <div class="fact"><span>Дата и время</span><strong><?= $date_formatted ?>, <?= htmlspecialchars($event[$time_col] ?: 'время не указано') ?></strong></div>
                 <div class="fact"><span>Гид</span><strong><?= htmlspecialchars($event[$guide_col] ?: 'Не назначен') ?></strong></div>
+                <div class="fact"><span>Статус выезда</span><strong class="event-state <?= !empty($event['completed_at']) ? 'completed' : (($event[$date_col] < date('Y-m-d')) ? 'pending' : 'planned') ?>"><?= !empty($event['completed_at']) ? 'Проведён' : (($event[$date_col] < date('Y-m-d')) ? 'Ожидает подтверждения' : 'Запланирован') ?></strong></div>
                 <?php if (!empty($event['duration'])): ?><div class="fact"><span>Длительность</span><strong><?= htmlspecialchars($event['duration']) ?></strong></div><?php endif; ?>
                 <?php if (!empty($event['coordinates'])): ?><div class="fact fact-wide"><span>Место встречи</span><a class="meeting-link" href="https://www.google.com/maps/search/?api=1&amp;query=<?= rawurlencode($event['coordinates']) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($event['coordinates']) ?> ↗</a></div><?php endif; ?>
             </div>
@@ -60,7 +62,7 @@
             <div class="metric"><span>Забронировано мест</span><strong><?= $total_seats ?></strong></div>
             <?php if ($current_user_role === 'admin'): ?>
                 <div class="metric"><span>Стоимость бронирований</span><strong><?= eventMoney($total_income) ?></strong></div>
-                <div class="metric"><span>Получено оплат</span><strong><?= eventMoney($total_received) ?></strong><small>Остаток: <?= eventMoney($outstanding) ?></small></div>
+                <div class="metric"><span>Предоплаты</span><strong><?= eventMoney($total_received) ?></strong><small><?= !empty($event['completed_at']) ? 'Выезд закрыт' : 'Взять на месте: ' . eventMoney($outstanding) ?></small></div>
                 <div class="metric metric-result"><span>Плановый результат</span><strong><?= eventMoney($profit) ?></strong><small>Расходы: <?= eventMoney($total_expenses) ?></small></div>
             <?php endif; ?>
         </section>

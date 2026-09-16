@@ -63,8 +63,13 @@ function clientReturnUrl($value): string
 
 function homeFilterWhere(array $filters, array &$params, bool $past = false): string
 {
-    $sql = $past ? 'e.tour_date < CURDATE()' : 'e.tour_date >= ' . (isset($filters['date_from']) ? '?' : 'CURDATE()');
-    if (!$past && isset($filters['date_from'])) $params[] = $filters['date_from'];
+    if ($past) {
+        $sql = 'e.tour_date < CURDATE() AND e.completed_at IS NOT NULL';
+    } elseif (isset($filters['date_from'])) {
+        $sql = 'e.tour_date >= ?'; $params[] = $filters['date_from'];
+    } else {
+        $sql = '(e.tour_date >= CURDATE() OR e.completed_at IS NULL)';
+    }
     if (isset($filters['date_to'])) { $sql .= ' AND e.tour_date <= ?'; $params[] = $filters['date_to']; }
     if ($past && isset($filters['date_from'])) { $sql .= ' AND e.tour_date >= ?'; $params[] = $filters['date_from']; }
     if (isset($filters['tour_filter'])) { $sql .= ' AND e.tour_id = ?'; $params[] = $filters['tour_filter']; }

@@ -61,6 +61,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes'], $event_id]);
             recordActivity($pdo, 'update', 'event', $event_id, 'Изменён выезд: ' . $details['tour_name'] . ', ' . $details['date']);
             eventRedirect($event_id, $return_suffix, 'event_updated');
+        } elseif (isset($_POST['complete_event']) && $current_user_role === 'admin') {
+            $stmt = $pdo->prepare('SELECT tour_date,completed_at FROM events WHERE id=?'); $stmt->execute([$event_id]); $state = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$state || $state['tour_date'] > date('Y-m-d')) throw new InvalidArgumentException('Будущий выезд пока нельзя отметить проведённым.');
+            if (empty($state['completed_at'])) {
+                $pdo->prepare('UPDATE events SET completed_at=CURRENT_TIMESTAMP,completed_by=? WHERE id=?')->execute([$current_user_name,$event_id]);
+                recordActivity($pdo, 'update', 'event', $event_id, 'Выезд отмечен проведённым');
+            }
+            eventRedirect($event_id, $return_suffix, 'event_completed');
+        } elseif (isset($_POST['reopen_event']) && $current_user_role === 'admin') {
+            $pdo->prepare('UPDATE events SET completed_at=NULL,completed_by=NULL WHERE id=?')->execute([$event_id]);
+            recordActivity($pdo, 'update', 'event', $event_id, 'Выезд возвращён в работу');
+            eventRedirect($event_id, $return_suffix, 'event_reopened');
         } elseif (isset($_POST['add_participant']) || isset($_POST['update_participant'])) {
             $data = eventParticipantInput($pdo, $_POST);
             $seat_binding = participantSeatBinding($pdo, $data['seats']);

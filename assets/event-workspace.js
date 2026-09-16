@@ -100,6 +100,8 @@
 
     const messages = {
         event_updated: 'Параметры выезда сохранены',
+        event_completed: 'Выезд отмечен проведённым',
+        event_reopened: 'Выезд возвращён в работу',
         participant_added: 'Турист добавлен',
         participant_updated: 'Бронирование обновлено',
         participant_deleted: 'Бронирование удалено',

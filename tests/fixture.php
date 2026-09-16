@@ -17,7 +17,7 @@ class FixturePDO extends PDO
         if ($existing) return;
         $this->exec("CREATE TABLE tours_catalog (id INTEGER PRIMARY KEY, name TEXT, public_name TEXT, sort_order INT DEFAULT 0, default_start_time TEXT, tour_type TEXT, max_group_size INT DEFAULT 0, prices TEXT, is_archived INT DEFAULT 0, duration TEXT, coordinates TEXT, description TEXT, difficulty TEXT, food_options TEXT, program TEXT, main_image TEXT, included_text TEXT, not_included_text TEXT, faq_text TEXT, images TEXT)");
         $this->exec("CREATE TABLE tour_modules (id INTEGER PRIMARY KEY, tour_id INT, title TEXT, timing TEXT, content TEXT, image_path TEXT, sort_order INT DEFAULT 999)");
-        $this->exec("CREATE TABLE events (id INTEGER PRIMARY KEY, tour_date TEXT, time TEXT DEFAULT '10:00', tour_id INT, guide TEXT, notes TEXT DEFAULT '')");
+        $this->exec("CREATE TABLE events (id INTEGER PRIMARY KEY, tour_date TEXT, time TEXT DEFAULT '10:00', tour_id INT, guide TEXT, notes TEXT DEFAULT '', completed_at TEXT, completed_by TEXT)");
         $this->exec("CREATE TABLE participants (id INTEGER PRIMARY KEY, event_id INT, client_name TEXT, phone TEXT, email TEXT, seats INT DEFAULT 1, " . ($legacy ? '' : 'places INT DEFAULT 1, ') . "price INT, source TEXT, status TEXT, notes TEXT, ticket_token TEXT)");
         $this->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, event_id INT, amount DECIMAL(10,2), category TEXT, description TEXT, receipt_path TEXT)");
         $this->exec("CREATE TABLE guides (id INTEGER PRIMARY KEY, name TEXT, sort_order INT DEFAULT 0, allowed_tours TEXT, color TEXT)");

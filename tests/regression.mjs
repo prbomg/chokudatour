@@ -86,10 +86,10 @@ try {
     return {data, html: response.text, status: response.httpStatusCode, headers: response.headers};
   }
   const cases = [
-    [{}, [4,8,7500,1250.75,6249.25]],
+    [{}, [5,12,13500,10250.75,3249.25]],
     [{date_from:'2026-09-01',date_to:'2026-09-30'}, [3,6,6000,750.75,5249.25]],
     [{date_from:'2026-09-05',date_to:'2026-09-05'}, [1,3,4000,300.75,3699.25]],
-    [{tour_filter:1}, [3,5,5500,850.75,4649.25]],
+    [{tour_filter:1}, [4,9,11500,9850.75,1649.25]],
     [{guide_filter:'Гид Б'}, [2,5,3500,900,2600]],
     [{date_from:'2026-09-01',date_to:'2026-09-30',tour_filter:1,guide_filter:'Гид А'}, [2,3,4000,350.75,3649.25]],
     [{date_from:'2026-09-07',date_to:'2026-09-07'}, [1,0,0,50,-50]],
@@ -113,6 +113,14 @@ try {
   assert.ok(event.html.includes('class="payment-head"'));
   assert.match(event.html, /assets\/event-workspace\.css\?v=\d+/);
   assert.match(event.html, /assets\/event-workspace\.js\?v=\d+/);
+  checks++;
+  const completedEvent = await page('event.php', {id:4}, {complete_event:1});
+  assert.ok(completedEvent.data.all_events.find(row => Number(row.id) === 4).completed_at);
+  assert.equal(completedEvent.data.activity_log.at(-1).summary, 'Выезд отмечен проведённым');
+  checks++;
+  const reopenedEvent = await page('event.php', {id:4}, {reopen_event:1}, false, {setup:["UPDATE events SET completed_at='2026-08-02 12:00:00', completed_by='Тест' WHERE id=4"]});
+  assert.equal(reopenedEvent.data.all_events.find(row => Number(row.id) === 4).completed_at, null);
+  assert.equal(reopenedEvent.data.activity_log.at(-1).summary, 'Выезд возвращён в работу');
   checks++;
   const eventReturn = 'event.php?id=1&return_to=' + encodeURIComponent('index.php?tour_filter=1');
   const clientFromEvent = await page('client.php', {phone:'70000000000',return_to:eventReturn});
@@ -270,6 +278,10 @@ try {
   assert.ok(analytics.html.includes('assets/analytics-workspace.css'));
   assert.ok(analytics.html.includes('Забронировано мест'));
   assert.ok(analytics.html.includes('01.09.2026 — 30.09.2026'));
+  assert.ok(analytics.html.includes('Финансовый отчёт'));
+  assert.ok(analytics.html.includes('Фактический доход'));
+  assert.ok(analytics.html.includes('Осталось собрать'));
+  assert.ok(analytics.html.includes('Стоимость бронирований'));
   checks++;
   const normalizedAnalytics = await page('analytics.php', {date_from:'2026-09-30',date_to:'2026-09-01',stat_year:'9999'});
   assert.equal(normalizedAnalytics.data.total_seats, 6);
@@ -334,7 +346,7 @@ try {
   const escapedFeed = await page('calendar_feed.php', {token:'fixture-token'}, {}, false, {setup:["UPDATE events SET notes='Строка 1" + "\n" + "SUMMARY:Подмена' WHERE id=1"]});
   assert.ok(escapedFeed.html.replace(/\r\n /g,'').includes('Строка 1\\nSUMMARY:Подмена'));
   checks++;
-  const archive = JSON.parse((await page('index.php', {}, {ajax_load_past:1,offset:0})).html);
+  const archive = JSON.parse((await page('index.php', {}, {ajax_load_past:1,offset:0}, false, {setup:["UPDATE events SET completed_at='2026-08-02 12:00:00', completed_by='Тест' WHERE id=4"]})).html);
   assert.equal(archive.status, 'success');
   assert.equal(archive.count, 1);
   assert.ok(archive.html.includes('4 чел.'));
@@ -370,7 +382,7 @@ try {
   assert.equal(evilReturn.headers.location[0], 'index.php'); checks++;
   const filteredHistory = JSON.parse((await page('index.php', {}, {ajax_load_past:1,offset:0,tour_filter:2})).html);
   assert.equal(filteredHistory.count, 0); checks++;
-  const sameDaySetup = ["INSERT INTO events (id,tour_date,time,tour_id,guide) VALUES (10,'2026-08-02','10:00',1,'Гид А'),(11,'2026-08-02','10:00',1,'Гид А'),(12,'2026-08-02','10:00',1,'Гид А'),(13,'2026-08-02','10:00',1,'Гид А'),(14,'2026-08-02','10:00',1,'Гид А'),(15,'2026-08-02','10:00',1,'Гид А')"];
+  const sameDaySetup = ["UPDATE events SET completed_at='2026-08-02 12:00:00' WHERE id=4", "INSERT INTO events (id,tour_date,time,tour_id,guide,completed_at) VALUES (10,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(11,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(12,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(13,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(14,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(15,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00')"];
   const ids = [];
   for (const offset of [0,5]) {
     const response = JSON.parse((await page('index.php', {}, {ajax_load_past:1,offset,tour_filter:1,guide_filter:'Гид А'},false,{setup:sameDaySetup})).html);
@@ -469,7 +481,7 @@ try {
       checks++;
     }
     const {data} = await page('index.php', {}, {}, legacy);
-    assert.equal(data.dash_clients, legacy ? 10 : 8);
+    assert.equal(data.dash_clients, legacy ? 14 : 12);
     checks++;
   }
 

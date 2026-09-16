@@ -43,6 +43,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_event']) && $c
     header("Location: " . $return_url); exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['complete_event']) && $current_user_role === 'admin') {
+    $eventId = (int)$_POST['complete_event'];
+    $stmt = $pdo->prepare('SELECT tour_date,completed_at FROM events WHERE id=?'); $stmt->execute([$eventId]); $state = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($state && empty($state['completed_at']) && $state['tour_date'] <= date('Y-m-d')) {
+        $pdo->prepare('UPDATE events SET completed_at=CURRENT_TIMESTAMP,completed_by=? WHERE id=?')->execute([$current_user_name,$eventId]);
+        recordActivity($pdo, 'update', 'event', $eventId, 'Выезд отмечен проведённым');
+    }
+    header('Location: ' . $return_url . (str_contains($return_url,'?')?'&':'?') . 'msg=event_completed'); exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_event']) || isset($_POST['ajax_add_event']))) {
     header('Content-Type: application/json; charset=utf-8');
     try {
@@ -242,6 +252,7 @@ if ($current_user_role === 'admin') {
     $sql = "SELECT e.*, t.name AS tour_name,
             COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
             COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price,
+            COALESCE((SELECT SUM(CASE WHEN operation='refund' THEN -amount ELSE amount END) FROM payments WHERE event_id=e.id AND voided_at IS NULL), 0) as total_prepayments,
             COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0) as total_expenses
             FROM events e JOIN tours_catalog t ON e.tour_id = t.id WHERE 1=1";
     $params = [];
@@ -265,7 +276,7 @@ if ($current_user_role === 'admin') {
     $guide_name = $_SESSION['user_name'];
     $stmt_g = $pdo->prepare("SELECT e.*, t.name AS tour_name, t.duration, t.coordinates 
                              FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
-                             WHERE e.guide = ? AND e.tour_date >= CURDATE() ORDER BY e.tour_date ASC, e.time ASC");
+                             WHERE e.guide = ? AND (e.tour_date >= CURDATE() OR e.completed_at IS NULL) ORDER BY e.tour_date ASC, e.time ASC");
     $stmt_g->execute([$guide_name]);
     $guide_events = $stmt_g->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -285,8 +296,8 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CRM - Главная</title>
-    <link rel="stylesheet" href="assets/homepage-base.css">
-    <link rel="stylesheet" href="assets/homepage-workspace.css">
+    <link rel="stylesheet" href="assets/homepage-base.css?v=<?= (int)@filemtime(__DIR__ . '/assets/homepage-base.css') ?>">
+    <link rel="stylesheet" href="assets/homepage-workspace.css?v=<?= (int)@filemtime(__DIR__ . '/assets/homepage-workspace.css') ?>">
 </head>
 <body class="workspace-home">
 
@@ -304,8 +315,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
     
     <?php if ($filter_error): ?><p role="alert" style="color:#B91C1C;"><?= htmlspecialchars($filter_error) ?></p><?php endif; ?>
     <p id="summaryScope" style="color:var(--text-muted); font-size:13px;">
-        Итоги выбранных выездов: с <?= htmlspecialchars($home_filters['date_from'] ?? date('Y-m-d')) ?>
-        <?= isset($home_filters['date_to']) ? 'по ' . htmlspecialchars($home_filters['date_to']) : 'и далее' ?>.
+        Итоги выбранных выездов: <?php if (empty($home_filters['date_from']) && empty($home_filters['date_to'])): ?>будущие и прошедшие, ожидающие подтверждения<?php else: ?>с <?= htmlspecialchars($home_filters['date_from'] ?? date('Y-m-d')) ?> <?= isset($home_filters['date_to']) ? 'по ' . htmlspecialchars($home_filters['date_to']) : 'и далее' ?><?php endif; ?>.
         Подгруженная история в эти итоги не входит. Для расчёта за прошлый период выберите даты.
     </p>
     <div class="dash-grid">
@@ -404,6 +414,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                         <?php if (!empty($ev['time'])): ?>
                             <div style="color: var(--primary); font-size: 11px; font-weight: 700; margin-top: 4px;">⏱ <?= htmlspecialchars($ev['time']) ?></div>
                         <?php endif; ?>
+                        <?php if (!empty($ev['completed_at'])): ?><span class="event-state-badge completed">Проведён</span><?php elseif ($ev['tour_date'] < date('Y-m-d')): ?><span class="event-state-badge pending">Ожидает подтверждения</span><?php endif; ?>
                     </td>
                     <td data-label="Тур"><a href="event.php?id=<?= $ev['id'] ?><?= htmlspecialchars($context_suffix, ENT_QUOTES) ?>" class="link-tour"><?= htmlspecialchars($ev['tour_name']) ?></a></td>
                     <td data-label="Гид"><span class="guide-tag" style="<?= getGuideColorStyle($ev['guide']) ?>"><?= htmlspecialchars($ev['guide'] ?: 'Не назначен') ?></span></td>
@@ -424,6 +435,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                     </td>
                     <td data-label="Действия" style="text-align: right; white-space: nowrap;">
                         <div class="action-cell">
+                            <?php if (empty($ev['completed_at']) && $ev['tour_date'] <= date('Y-m-d')): $completion_text="Подтвердить, что выезд прошёл?\n\nБронирования: ".number_format($ev['total_price'],0,'',' ')." ₽\nПредоплаты: ".number_format($ev['total_prepayments'],0,'',' ')." ₽\nРасходы: ".number_format($ev['total_expenses'],0,'',' ')." ₽\nПрибыль: ".number_format($ev['total_price']-$ev['total_expenses'],0,'',' ')." ₽"; ?><form method="post" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>" onsubmit="return confirm(<?= htmlspecialchars(json_encode($completion_text, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)"><?= formTokenInput() ?><button type="submit" name="complete_event" value="<?= (int)$ev['id'] ?>" class="btn-icon btn-complete" title="Выезд прошёл" aria-label="Отметить выезд проведённым">✓</button></form><?php endif; ?>
                             <button type="button" class="btn-icon btn-edit" onclick="toggleEditE(<?= $ev['id'] ?>)" title="Редактировать">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                             </button>

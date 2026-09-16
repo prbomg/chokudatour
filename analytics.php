@@ -119,6 +119,30 @@ $stmt_top_guides = $pdo->prepare("
 $stmt_top_guides->execute([$date_from, $date_to]);
 $top_guides = $stmt_top_guides->fetchAll(PDO::FETCH_ASSOC);
 
+// Финансовый отчёт по состоянию выезда. Стоимость бронирований становится
+// фактическим доходом после подтверждения «Выезд прошёл»; платежи здесь — предоплаты.
+$stmt_finance = $pdo->prepare("\n    SELECT e.id, e.tour_date, e.time, e.completed_at, t.name AS tour_name,\n           COALESCE((SELECT SUM(p.price) FROM participants p WHERE p.event_id=e.id AND p.status != 'Отмена'), 0) AS bookings,\n           COALESCE((SELECT SUM(CASE WHEN py.operation='refund' THEN -py.amount ELSE py.amount END) FROM payments py WHERE py.event_id=e.id AND py.voided_at IS NULL), 0) AS prepayments,\n           COALESCE((SELECT SUM(ex.amount) FROM expenses ex WHERE ex.event_id=e.id), 0) AS expenses\n    FROM events e JOIN tours_catalog t ON t.id=e.tour_id\n    WHERE e.tour_date BETWEEN ? AND ?\n    ORDER BY e.tour_date DESC, e.time DESC, e.id DESC\n");
+$stmt_finance->execute([$date_from, $date_to]);
+$finance_events = $stmt_finance->fetchAll(PDO::FETCH_ASSOC);
+$finance_summary = ['actual_revenue'=>0, 'forecast_revenue'=>0, 'prepayments'=>0, 'collect'=>0, 'actual_profit'=>0, 'pending_overdue'=>0];
+foreach ($finance_events as &$financial_event) {
+    $financial_event['bookings'] = (float)$financial_event['bookings'];
+    $financial_event['prepayments'] = (float)$financial_event['prepayments'];
+    $financial_event['expenses'] = (float)$financial_event['expenses'];
+    $financial_event['collect'] = max(0, $financial_event['bookings'] - $financial_event['prepayments']);
+    $financial_event['profit'] = $financial_event['bookings'] - $financial_event['expenses'];
+    if (!empty($financial_event['completed_at'])) {
+        $finance_summary['actual_revenue'] += $financial_event['bookings'];
+        $finance_summary['actual_profit'] += $financial_event['profit'];
+    } else {
+        $finance_summary['forecast_revenue'] += $financial_event['bookings'];
+        $finance_summary['prepayments'] += $financial_event['prepayments'];
+        $finance_summary['collect'] += $financial_event['collect'];
+        if ($financial_event['tour_date'] < date('Y-m-d')) $finance_summary['pending_overdue']++;
+    }
+}
+unset($financial_event);
+
 // Вспомогательная функция для прогресс-баров
 function getPercent($part, $total) {
     if ($total <= 0) return 0;
@@ -357,7 +381,7 @@ if (!in_array($stat_year, $available_years)) {
 
     <div class="dash-grid">
         <div class="dash-card blue">
-            <div class="dash-title">Общая выручка</div>
+            <div class="dash-title">Стоимость бронирований</div>
             <div class="dash-val"><?= number_format($total_revenue, 0, '', ' ') ?> ₽</div>
         </div>
         <div class="dash-card expense">
@@ -377,6 +401,23 @@ if (!in_array($stat_year, $available_years)) {
             <div class="dash-val"><?= number_format($total_seats, 0, '', ' ') ?></div>
         </div>
     </div>
+
+    <section class="card finance-report">
+        <div class="finance-report-heading"><div><span class="eyebrow">По статусу выездов</span><h3>Финансовый отчёт</h3><p>Предоплаты уменьшают сумму к сбору, а весь доход фиксируется после подтверждения выезда.</p></div><?php if ($finance_summary['pending_overdue']): ?><span class="finance-alert"><?= (int)$finance_summary['pending_overdue'] ?> требуют подтверждения</span><?php endif; ?></div>
+        <div class="finance-summary">
+            <div><span>Фактический доход</span><strong><?= number_format($finance_summary['actual_revenue'], 0, '', ' ') ?> ₽</strong></div>
+            <div><span>Прогноз дохода</span><strong><?= number_format($finance_summary['forecast_revenue'], 0, '', ' ') ?> ₽</strong></div>
+            <div><span>Предоплаты активных выездов</span><strong><?= number_format($finance_summary['prepayments'], 0, '', ' ') ?> ₽</strong></div>
+            <div><span>Осталось собрать</span><strong><?= number_format($finance_summary['collect'], 0, '', ' ') ?> ₽</strong></div>
+            <div><span>Фактическая прибыль</span><strong><?= number_format($finance_summary['actual_profit'], 0, '', ' ') ?> ₽</strong></div>
+        </div>
+        <div class="table-responsive finance-table-wrap"><table class="finance-table"><thead><tr><th>Выезд</th><th>Статус</th><th>Бронирования</th><th>Предоплаты</th><th>Взять на месте</th><th>Расходы</th><th>Прибыль</th></tr></thead><tbody>
+        <?php if (!$finance_events): ?><tr><td colspan="7" class="finance-empty">За выбранный период выездов нет</td></tr><?php endif; ?>
+        <?php foreach ($finance_events as $row): $done=!empty($row['completed_at']); $overdue=!$done && $row['tour_date'] < date('Y-m-d'); ?>
+            <tr><td><a class="finance-event-link" href="event.php?id=<?= (int)$row['id'] ?>"><?= htmlspecialchars($row['tour_name']) ?></a><small><?= date('d.m.Y', strtotime($row['tour_date'])) ?><?= $row['time'] ? ' · '.htmlspecialchars(substr($row['time'],0,5)) : '' ?></small></td><td><span class="finance-status <?= $done?'completed':($overdue?'pending':'planned') ?>"><?= $done?'Проведён':($overdue?'Ждёт подтверждения':'Запланирован') ?></span></td><td><?= number_format($row['bookings'],0,'',' ') ?> ₽</td><td><?= number_format($row['prepayments'],0,'',' ') ?> ₽</td><td><?= $done?'—':number_format($row['collect'],0,'',' ').' ₽' ?></td><td><?= number_format($row['expenses'],0,'',' ') ?> ₽</td><td class="finance-profit <?= $row['profit'] < 0?'negative':'' ?>"><?= number_format($row['profit'],0,'',' ') ?> ₽<small><?= $done?'факт':'прогноз' ?></small></td></tr>
+        <?php endforeach; ?>
+        </tbody></table></div>
+    </section>
 
     <div class="charts-layout">
         <div class="card">
