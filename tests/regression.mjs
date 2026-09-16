@@ -111,6 +111,8 @@ try {
   assert.ok(event.html.includes('Расчёты с туристами'));
   assert.ok(event.html.includes('id="paymentDialog"'));
   assert.ok(event.html.includes('class="payment-head"'));
+  assert.match(event.html, /assets\/event-workspace\.css\?v=\d+/);
+  assert.match(event.html, /assets\/event-workspace\.js\?v=\d+/);
   checks++;
   const eventReturn = 'event.php?id=1&return_to=' + encodeURIComponent('index.php?tour_filter=1');
   const clientFromEvent = await page('client.php', {phone:'70000000000',return_to:eventReturn});

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($event['public_name'] ?: $event['tour_name']) ?> — <?= $date_formatted ?></title>
-    <link rel="stylesheet" href="assets/event-workspace.css">
+    <link rel="stylesheet" href="assets/event-workspace.css?v=<?= @filemtime(__DIR__ . '/assets/event-workspace.css') ?: 1 ?>">
 </head>
 <body>
 <svg class="icon-sprite" aria-hidden="true">
@@ -245,6 +245,6 @@ $posted_participant = $posted_action === 'participant' ? [
 ] : null;
 ?>
 <script>window.eventPageConfig = <?= json_encode(['message'=>$_GET['msg'] ?? '', 'error'=>$page_error, 'postedAction'=>$posted_action, 'postedParticipant'=>$posted_participant], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
-<script src="assets/event-workspace.js"></script>
+<script src="assets/event-workspace.js?v=<?= @filemtime(__DIR__ . '/assets/event-workspace.js') ?: 1 ?>"></script>
 </body>
 </html>
