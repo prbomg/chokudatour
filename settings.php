@@ -260,7 +260,7 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
             .phone-input { flex-grow: 1; }
         }
     </style>
-    <link rel="stylesheet" href="assets/settings-workspace.css?v=<?= filemtime(__DIR__ . '/assets/settings-workspace.css') ?>">
+    <link rel="stylesheet" href="assets/settings-workspace.css?v=<?= substr(md5_file(__DIR__ . '/assets/settings-workspace.css'), 0, 10) ?>">
 </head>
 <body>
 
@@ -291,12 +291,14 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
             <div><span class="eyebrow">Защита данных</span><h2 id="backup-title">Резервные копии и экспорт</h2><p>Выгрузите рабочие данные для анализа или сохраните полную копию перед обновлением сервиса.</p></div>
             <div class="backup-status <?= $last_backup_at !== '' ? 'is-ready' : '' ?>"><span>Последняя копия базы</span><strong><?= htmlspecialchars($last_backup_label) ?></strong><?php if ($last_backup_file !== ''): ?><small><?= htmlspecialchars($last_backup_file) ?></small><?php endif; ?></div>
         </header>
-        <div class="backup-actions">
-            <form method="post" action="backup.php"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="clients"><div><strong>Клиенты</strong><span>Контакты, поездки, суммы, теги и заметки</span></div><button type="submit">Скачать CSV</button></form>
-            <form method="post" action="backup.php"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="events"><div><strong>Выезды</strong><span>Расписание, гиды, места, доходы и расходы</span></div><button type="submit">Скачать CSV</button></form>
-            <form method="post" action="backup.php"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="payments"><div><strong>Платежи</strong><span>Оплаты и возвраты с привязкой к туристам</span></div><button type="submit">Скачать CSV</button></form>
-            <form method="post" action="backup.php"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="receipts"><div><strong>Архив чеков</strong><span>ZIP с файлами и реестром расходов</span></div><button type="submit">Скачать ZIP</button></form>
-            <form method="post" action="backup.php" class="database-backup" onsubmit="return confirm('Создать полную резервную копию базы? Сохраните скачанный файл в надёжном месте.')"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="database"><div><strong>Полная копия базы</strong><span>Структура, настройки и все записи в формате SQL</span></div><button type="submit">Создать копию</button></form>
+        <div class="backup-body">
+            <div class="export-grid">
+                <form method="post" action="backup.php" class="export-card"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="clients"><span class="backup-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><div><strong>Клиенты</strong><span>Контакты, поездки, суммы, теги и заметки</span></div><button type="submit">CSV <b>↓</b></button></form>
+                <form method="post" action="backup.php" class="export-card"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="events"><span class="backup-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg></span><div><strong>Выезды</strong><span>Расписание, гиды, места, доходы и расходы</span></div><button type="submit">CSV <b>↓</b></button></form>
+                <form method="post" action="backup.php" class="export-card"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="payments"><span class="backup-icon"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h2"/></svg></span><div><strong>Платежи</strong><span>Оплаты и возвраты с привязкой к туристам</span></div><button type="submit">CSV <b>↓</b></button></form>
+                <form method="post" action="backup.php" class="export-card"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="receipts"><span class="backup-icon"><svg viewBox="0 0 24 24"><path d="M4 2h11l5 5v15H4zM14 2v6h6M8 13h8M8 17h6"/></svg></span><div><strong>Архив чеков</strong><span>ZIP с файлами и реестром расходов</span></div><button type="submit">ZIP <b>↓</b></button></form>
+            </div>
+            <form method="post" action="backup.php" class="database-backup" onsubmit="return confirm('Создать полную резервную копию базы? Сохраните скачанный файл в надёжном месте.')"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="database"><span class="database-icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span><div><span class="backup-kicker">Полное сохранение</span><strong>Резервная копия базы</strong><p>Все выезды, туристы, платежи, настройки и структура сервиса в одном SQL-файле.</p></div><button type="submit">Создать и скачать копию <b>↓</b></button><small>Храните файл в защищённом месте</small></form>
         </div>
     </section>
 
