@@ -414,7 +414,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                         <?php if (!empty($ev['time'])): ?>
                             <div style="color: var(--primary); font-size: 11px; font-weight: 700; margin-top: 4px;">⏱ <?= htmlspecialchars($ev['time']) ?></div>
                         <?php endif; ?>
-                        <?php if (!empty($ev['completed_at'])): ?><span class="event-state-badge completed">Проведён</span><?php elseif ($ev['tour_date'] < date('Y-m-d')): ?><span class="event-state-badge pending">Ожидает подтверждения</span><?php endif; ?>
+                        <?php if (!empty($ev['completed_at'])): ?><span class="event-state-badge completed">Проведён</span><?php elseif ($ev['tour_date'] < date('Y-m-d')): ?><span class="event-state-badge pending">Подтвердить</span><?php endif; ?>
                     </td>
                     <td data-label="Тур"><a href="event.php?id=<?= $ev['id'] ?><?= htmlspecialchars($context_suffix, ENT_QUOTES) ?>" class="link-tour"><?= htmlspecialchars($ev['tour_name']) ?></a></td>
                     <td data-label="Гид"><span class="guide-tag" style="<?= getGuideColorStyle($ev['guide']) ?>"><?= htmlspecialchars($ev['guide'] ?: 'Не назначен') ?></span></td>
