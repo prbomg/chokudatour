@@ -343,6 +343,9 @@ try {
   assert.ok(settings.html.includes('type="password"'));
   assert.ok(settings.html.includes('Резервные копии и экспорт'));
   assert.ok(settings.html.includes('Резервная копия ещё не создавалась'));
+  const backupMarkup = settings.html.slice(settings.html.indexOf('<section class="backup-section'), settings.html.indexOf('<div class="section-wrap grid-2">'));
+  assert.ok(!backupMarkup.includes('<svg'));
+  assert.ok(backupMarkup.includes('aria-hidden="true">DB</span>'));
   checks++;
   const clientsExport = await page('backup.php', {}, {backup_action:'clients'});
   assert.match(clientsExport.headers['content-type'][0], /text\/csv/);
