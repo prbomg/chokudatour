@@ -11,7 +11,16 @@ function normalizePhone($value): string
     $digits = preg_replace('/\D+/', '', trim((string)$value));
     if (strlen($digits) === 11 && $digits[0] === '8') $digits = '7' . substr($digits, 1);
     if (strlen($digits) === 10) $digits = '7' . $digits;
-    return $digits;
+    return $digits === '' ? '' : '+' . $digits;
+}
+
+function displayPhone($value): string
+{
+    $phone = normalizePhone($value);
+    if (preg_match('/^\+7(\d{3})(\d{3})(\d{2})(\d{2})$/', $phone, $parts)) {
+        return '+7 ' . $parts[1] . ' ' . $parts[2] . '-' . $parts[3] . '-' . $parts[4];
+    }
+    return $phone;
 }
 
 function bookingParticipantInput(PDO $pdo, array $input, int $minimumPhoneDigits = 5): array
@@ -25,7 +34,8 @@ function bookingParticipantInput(PDO $pdo, array $input, int $minimumPhoneDigits
     $status = trim((string)($input['status'] ?? 'Бронь'));
     $notes = trim((string)($input['notes'] ?? ''));
     if ($name === '' || mb_strlen($name) > 255) throw new InvalidArgumentException('Укажите имя туриста длиной до 255 символов.');
-    if (strlen($phone) < $minimumPhoneDigits || strlen($phone) > 20) throw new InvalidArgumentException('Укажите корректный телефон.');
+    $phoneDigits = strlen(ltrim($phone, '+'));
+    if ($phoneDigits < $minimumPhoneDigits || $phoneDigits > 20) throw new InvalidArgumentException('Укажите корректный телефон.');
     if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Укажите корректный e-mail.');
     if (!ctype_digit($seatsRaw) || (int)$seatsRaw < 1 || (int)$seatsRaw > 999) throw new InvalidArgumentException('Количество мест должно быть целым числом от 1 до 999.');
     if (!preg_match('/^\d+$/D', $priceRaw) || (int)$priceRaw > 999999999) throw new InvalidArgumentException('Сумма бронирования должна быть целым неотрицательным числом.');

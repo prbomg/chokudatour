@@ -119,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
                 <td><a href='client.php?phone=".urlencode($p['phone'] ?? '')."' class='client-link'>".htmlspecialchars($p['client_name'] ?? '')."</a></td>
                 <td>
                     <div class='contact-col'>
-                        <span style='font-weight:600; color:var(--text-main);'>".htmlspecialchars($p['phone'] ?? '')."</span>
+                        <span style='font-weight:600; color:var(--text-main);'>".htmlspecialchars(displayPhone($p['phone'] ?? ''))."</span>
                         {$email_html}
                     </div>
                 </td>
@@ -555,7 +555,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                         <td><a href="client.php?phone=<?= urlencode($p['phone'] ?? '') ?>" class="client-link" title="История клиента"><?= htmlspecialchars($p['client_name'] ?? '') ?></a></td>
                         <td>
                             <div class="contact-col">
-                                <span style="font-weight:600; color:var(--text-main);"><?= htmlspecialchars($p['phone'] ?? '') ?></span>
+                                <span style="font-weight:600; color:var(--text-main);"><?= htmlspecialchars(displayPhone($p['phone'] ?? '')) ?></span>
                                 <?php if (!empty($p['email'])): ?><span style="color:var(--text-muted); font-size:12px; font-weight:500;"><?= htmlspecialchars($p['email'] ?? '') ?></span><?php endif; ?>
                             </div>
                         </td>

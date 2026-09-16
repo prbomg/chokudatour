@@ -6,6 +6,7 @@ require_once 'auth.php';
 require_once __DIR__ . '/homepage_helpers.php';
 require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/expense_helpers.php';
+require_once __DIR__ . '/booking_helpers.php';
 $filter_error = '';
 try { $home_filters = homeFilters($_GET); } catch (InvalidArgumentException $e) { $home_filters = []; $filter_error = $e->getMessage(); }
 $home_url = homeUrl($home_filters);
@@ -210,7 +211,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                     $p_places = participantSeats($t);
                     $html .= "<div class='g-tourist-row'>";
                     $html .= "<div class='g-tourist-info'><span class='g-tourist-name'>" . htmlspecialchars($t['client_name'] ?? $t['name'] ?? '') . "</span><span class='g-tourist-seats'>{$p_places} чел.</span></div>";
-                    $html .= "<div class='g-tourist-actions'><a href='tel:{$t['phone']}' class='g-btn-icon g-btn-call'>📞</a><a href='https://wa.me/{$clean_phone}' target='_blank' class='g-btn-icon g-btn-wa'>💬</a></div>";
+                    $call_phone = htmlspecialchars(normalizePhone($t['phone']), ENT_QUOTES);
+                    $html .= "<div class='g-tourist-actions'><a href='tel:{$call_phone}' class='g-btn-icon g-btn-call'>📞</a><a href='https://wa.me/{$clean_phone}' target='_blank' class='g-btn-icon g-btn-wa'>💬</a></div>";
                     $html .= "</div>";
                 }
                 $html .= "</div>";
@@ -554,7 +556,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                             <span class="g-tourist-seats"><?= $p_places ?> чел.</span>
                         </div>
                         <div class="g-tourist-actions">
-                            <a href="tel:<?= htmlspecialchars($t['phone']) ?>" class="g-btn-icon g-btn-call" title="Позвонить">📞</a>
+                            <a href="tel:<?= htmlspecialchars(normalizePhone($t['phone']), ENT_QUOTES) ?>" class="g-btn-icon g-btn-call" title="Позвонить">📞</a>
                             <a href="https://wa.me/<?= $clean_phone ?>" target="_blank" class="g-btn-icon g-btn-wa" title="WhatsApp">💬</a>
                         </div>
                     </div>

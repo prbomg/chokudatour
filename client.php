@@ -11,14 +11,13 @@ require_once __DIR__ . '/client_phone_migration.php';
 require_once __DIR__ . '/activity_log.php';
 if ($current_user_role !== 'admin') { http_response_code(403); exit('Доступ закрыт.'); }
 
-$phone = normalizePhone($_GET['phone'] ?? '');
-if ($phone === '') { header('Location: clients.php'); exit; }
+$phone = trim((string)($_GET['phone'] ?? ''));
+if (normalizePhone($phone) === '') { header('Location: clients.php'); exit; }
 $return_url = clientReturnUrl($_GET['return_to'] ?? 'clients.php');
 $return_suffix = isset($_GET['return_to']) ? '&return_to=' . rawurlencode($return_url) : '';
 $return_is_event = str_starts_with($return_url, 'event.php?');
 $profile_url = 'client.php?phone=' . rawurlencode($phone) . $return_suffix;
 ensureClientWorkspace($pdo);
-normalizeStoredClientPhones($pdo);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
 $part_cols = $pdo->query('SHOW COLUMNS FROM participants')->fetchAll(PDO::FETCH_COLUMN);

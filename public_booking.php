@@ -14,7 +14,7 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
     $email = trim((string)($input['email'] ?? ''));
     $notes = trim((string)($input['notes'] ?? ''));
     $seats = filter_var($input['seats'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 999]]);
-    if (!$seats || !validTourDate($date) || $name === '' || mb_strlen($name) > 255 || !preg_match('/^[0-9]{7,15}$/D', $phone) || mb_strlen($email) > 100 || ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) || mb_strlen($notes) > 1000) {
+    if (!$seats || !validTourDate($date) || $name === '' || mb_strlen($name) > 255 || !preg_match('/^\+[0-9]{7,15}$/D', $phone) || mb_strlen($email) > 100 || ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) || mb_strlen($notes) > 1000) {
         throw new InvalidArgumentException('Проверьте дату, имя, телефон, e-mail и количество человек.');
     }
     $pdo->exec('CREATE TABLE IF NOT EXISTS booking_requests (token VARCHAR(64) PRIMARY KEY, participant_id INT NOT NULL)');

@@ -100,7 +100,7 @@
                         <div class="participant-person">
                             <?php if ($current_user_role === 'admin'): ?><a class="participant-name" href="client.php?phone=<?= rawurlencode($participant['phone'] ?? '') ?><?= htmlspecialchars($clientReturn, ENT_QUOTES) ?>"><?= htmlspecialchars($participantName) ?></a><?php else: ?><strong class="participant-name"><?= htmlspecialchars($participantName) ?></strong><?php endif; ?>
                             <div class="participant-contacts">
-                                <a href="tel:<?= htmlspecialchars($participant['phone'] ?? '', ENT_QUOTES) ?>"><?= htmlspecialchars($participant['phone'] ?? '') ?></a>
+                                <a href="tel:<?= htmlspecialchars(normalizePhone($participant['phone'] ?? ''), ENT_QUOTES) ?>"><?= htmlspecialchars(displayPhone($participant['phone'] ?? '')) ?></a>
                                 <?php if (!empty($participant['email'])): ?><a href="mailto:<?= htmlspecialchars($participant['email'], ENT_QUOTES) ?>"><?= htmlspecialchars($participant['email']) ?></a><?php endif; ?>
                             </div>
                         </div>
@@ -111,7 +111,7 @@
                         <div><span class="status" data-status="<?= htmlspecialchars($participant['status'] ?? '', ENT_QUOTES) ?>"><?= htmlspecialchars($participant['status'] ?? '') ?></span></div>
                         <div class="participant-note"><?php if (!empty($participant['notes'])): ?><details><summary><?= htmlspecialchars($participant['notes']) ?></summary><p><?= nl2br(htmlspecialchars($participant['notes'])) ?></p></details><?php else: ?><span class="muted">Нет примечания</span><?php endif; ?></div>
                         <div class="row-actions">
-                            <a href="tel:<?= htmlspecialchars($participant['phone'] ?? '', ENT_QUOTES) ?>" class="icon-btn" title="Позвонить" aria-label="Позвонить <?= htmlspecialchars($participantName, ENT_QUOTES) ?>"><svg><use href="#i-phone"/></svg></a>
+                            <a href="tel:<?= htmlspecialchars(normalizePhone($participant['phone'] ?? ''), ENT_QUOTES) ?>" class="icon-btn" title="Позвонить" aria-label="Позвонить <?= htmlspecialchars($participantName, ENT_QUOTES) ?>"><svg><use href="#i-phone"/></svg></a>
                             <button type="button" class="icon-btn wa-btn" title="WhatsApp" aria-label="Написать в WhatsApp" data-phone="<?= htmlspecialchars($cleanPhone, ENT_QUOTES) ?>" data-message="<?= htmlspecialchars($message, ENT_QUOTES) ?>"><svg><use href="#i-message"/></svg></button>
                             <?php if (!$cancelled && !empty($participant['ticket_token'])): ?><a href="ticket.php?token=<?= rawurlencode($participant['ticket_token']) ?>" target="_blank" rel="noopener noreferrer" class="icon-btn" title="Открыть билет" aria-label="Открыть билет туриста"><svg><use href="#i-ticket"/></svg></a><?php endif; ?>
                             <?php if ($current_user_role === 'admin' && !$cancelled): ?><button type="button" class="icon-btn payment-btn" title="Добавить оплату" aria-label="Добавить оплату" data-participant-id="<?= $participantId ?>" data-participant-name="<?= htmlspecialchars($participantName, ENT_QUOTES) ?>"><svg><use href="#i-wallet"/></svg></button><?php endif; ?>

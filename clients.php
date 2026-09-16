@@ -8,7 +8,6 @@ require_once __DIR__ . '/client_workspace_helpers.php';
 require_once __DIR__ . '/client_phone_migration.php';
 if ($current_user_role !== 'admin') { http_response_code(403); exit('Доступ закрыт.'); }
 ensureClientWorkspace($pdo);
-normalizeStoredClientPhones($pdo);
 
 $part_cols = $pdo->query('SHOW COLUMNS FROM participants')->fetchAll(PDO::FETCH_COLUMN);
 $name_col = in_array('client_name', $part_cols, true) ? 'client_name' : 'name';
@@ -47,6 +46,16 @@ $sql = "SELECT p.phone, MAX(p.{$name_col}) client_name, MAX(p.email) email,
         ORDER BY booking_value DESC, active_trips DESC, client_name ASC
         LIMIT 500";
 $stmt = $pdo->prepare($sql); $stmt->execute($params); $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$duplicates_sql = "SELECT p.phone, MAX(p.{$name_col}) client_name, MAX(p.email) email,
+                          COUNT(DISTINCT p.event_id) active_trips,
+                          SUM(CASE WHEN p.status!='Отмена' THEN {$seat_sql} ELSE 0 END) total_seats
+                   FROM participants p
+                   WHERE COALESCE(p.phone,'')!=''
+                   GROUP BY p.phone
+                   ORDER BY client_name ASC
+                   LIMIT 500";
+$potential_duplicates = clientPotentialDuplicates($pdo->query($duplicates_sql)->fetchAll(PDO::FETCH_ASSOC));
 
 $all_available_tags = clientTagsFromString($pdo->query("SELECT setting_value FROM global_settings WHERE setting_key='client_tags'")->fetchColumn());
 $tours = $pdo->query('SELECT id,name,public_name FROM tours_catalog ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);

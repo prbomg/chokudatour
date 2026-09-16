@@ -129,6 +129,8 @@ try {
   assert.ok(clientFromEvent.html.includes('href="index.php" class="nav-link'));
   assert.ok(clientFromEvent.html.includes('data-history-filter="cancelled"'));
   assert.ok(clientFromEvent.html.includes('data-trip-state="active"'));
+  assert.ok(clientFromEvent.html.includes('tel:+70000000000'));
+  assert.ok(clientFromEvent.html.includes('+7 000 000-00-00'));
   checks++;
   const clientList = await page('clients.php');
   assert.ok(clientList.html.includes('База клиентов'));
@@ -137,8 +139,28 @@ try {
   assert.ok(clientList.html.includes('13 500 ₽'));
   assert.ok(clientList.html.includes('return_to=clients.php'));
   checks++;
-  const normalizedClientList = await page('clients.php', {}, {}, false, {setup:["UPDATE participants SET phone='+7 (999) 123-45-67' WHERE id=1"]});
-  assert.equal(normalizedClientList.data.participants[0].phone, '79991234567');
+  const normalizedClientList = await page('clients.php', {}, {}, false, {setup:["UPDATE participants SET phone='+7 (000) 000-00-00' WHERE id=1"]});
+  assert.equal(normalizedClientList.data.participants[0].phone, '+7 (000) 000-00-00');
+  assert.ok(normalizedClientList.html.includes('Возможные дубли'));
+  assert.ok(normalizedClientList.html.includes('Один номер в разных форматах'));
+  assert.ok(normalizedClientList.html.includes('Одинаковый e-mail'));
+  assert.ok(normalizedClientList.html.includes('merge_phone='));
+  checks++;
+  const duplicateSignals = await page('clients.php', {}, {}, false, {setup:[
+    "UPDATE participants SET phone='+7 (000) 000-00-00',client_name='Формат Номера',email='format-a@example.invalid' WHERE id=1",
+    "UPDATE participants SET phone='70000000000',client_name='Формат Номера',email='format-b@example.invalid' WHERE id=2",
+    "UPDATE participants SET phone='79991110000',client_name='Алексей Иванов',email='shared@example.invalid' WHERE id=3",
+    "UPDATE participants SET phone='78882220000',client_name='Алексей Иваноф',email='shared@example.invalid' WHERE id=4",
+    "UPDATE participants SET phone='75551112222',client_name='Мария Петрова',email='maria-a@example.invalid' WHERE id=5",
+    "UPDATE participants SET phone='74441113333',client_name='Мария Петрова',email='maria-b@example.invalid' WHERE id=6"
+  ]});
+  for (const reason of ['Один номер в разных форматах','Одинаковый e-mail','Похожее имя и последние цифры телефона','Одинаковое имя при разных контактах']) assert.ok(duplicateSignals.html.includes(reason), reason);
+  checks++;
+  const reviewedDuplicate = await page('client.php', {phone:'70000000000',merge_phone:'+7 (000) 000-00-00'}, {}, false, {setup:["UPDATE participants SET phone='+7 (000) 000-00-00' WHERE id=1"]});
+  assert.ok(reviewedDuplicate.html.includes('"reviewMerge":true'));
+  assert.ok(reviewedDuplicate.html.includes('value="+7 (000) 000-00-00" selected'));
+  const manuallyMergedFormat = await page('client.php', {phone:'70000000000'}, {merge_client:1,source_phone:'+7 (000) 000-00-00'}, false, {setup:["UPDATE participants SET phone='+7 (000) 000-00-00' WHERE id=1"]});
+  assert.equal(manuallyMergedFormat.data.participants[0].phone, '70000000000');
   checks++;
   const filteredClientList = await page('clients.php', {search:'Тестовый',tour_id:1});
   assert.ok(filteredClientList.html.includes('Тестовый турист'));
@@ -212,7 +234,8 @@ try {
   assert.ok(invalidParticipantEdit.html.includes('корректный телефон'));
   checks++;
   const normalizedParticipant = await page('event.php', {id:1}, {add_participant:1,client_name:'Телефон',phone:'+7 (999) 123-45-67',email:'',seats:1,price:0,source:'CRM',status:'Оплата на месте',notes:''});
-  assert.equal(normalizedParticipant.data.participants.at(-1).phone, '79991234567');
+  assert.equal(normalizedParticipant.data.participants.at(-1).phone, '+79991234567');
+  assert.ok(normalizedParticipant.headers.location[0].includes('participant_added'));
   assert.equal(normalizedParticipant.data.participants.at(-1).status, 'Оплата на месте');
   checks++;
   const calendar = await page('schedule.php', {ym:'2026-09'});

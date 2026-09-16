@@ -23,6 +23,7 @@
     }
     const messages = {saved:'Профиль клиента сохранён',tag_renamed:'Тег переименован у всех клиентов',tag_deleted:'Тег удалён из базы',client_merged:'Карточки клиентов объединены'};
     const config = window.clientPageConfig || {};
+    if (config.reviewMerge) $('#mergeClientDialog')?.showModal();
     if (messages[config.message]) {
         showToast(messages[config.message], config.message === 'tag_deleted' ? 'error' : 'success');
         const url = new URL(window.location.href); url.searchParams.delete('msg'); history.replaceState({}, document.title, url);
