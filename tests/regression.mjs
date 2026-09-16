@@ -273,6 +273,14 @@ try {
   assert.equal(scheduledEvent.data.all_events.length, 6);
   assert.equal(scheduledEvent.data.all_events.at(-1).time, '09:30');
   checks++;
+  const scheduleConflict = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide:'Гид А'}, false, {setup:["INSERT INTO guide_timeoffs (guide_name,date_off,reason) VALUES ('Гид А','2026-09-20','Отпуск')"]});
+  assert.equal(scheduleConflict.data.all_events.length, 5);
+  assert.ok(scheduleConflict.html.includes('Проверьте расписание'));
+  assert.ok(scheduleConflict.html.includes('Отпуск'));
+  assert.ok(scheduleConflict.html.includes('Всё равно добавить выезд'));
+  const forcedScheduleConflict = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide:'Гид А',schedule_override:1}, false, {setup:["INSERT INTO guide_timeoffs (guide_name,date_off) VALUES ('Гид А','2026-09-20')"]});
+  assert.equal(forcedScheduleConflict.data.all_events.length, 6);
+  checks++;
   const invalidScheduledEvent = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-02-30',time:'09:30',guide:'Гид А'});
   assert.equal(invalidScheduledEvent.data.all_events.length, 5);
   checks++;
@@ -444,6 +452,25 @@ try {
   assert.equal(newEvent.data.all_events.at(-1).time, '14:35');
   assert.equal(newEvent.data.notifications[0].events, 6);
   assert.ok(newEvent.data.notifications[0].message.includes('14:35'));
+  checks++;
+  const blockedManualEvent = await page('index.php', {}, {ajax_add_event:1,...details}, false, {setup:["INSERT INTO blocked_dates (block_date,reason,action_type,tours) VALUES ('2026-09-08','Технический день','close','all')"]});
+  assert.equal(blockedManualEvent.status, 409);
+  assert.equal(JSON.parse(blockedManualEvent.html).status, 'warning');
+  assert.ok(JSON.parse(blockedManualEvent.html).warnings.join(' ').includes('Технический день'));
+  assert.equal(blockedManualEvent.data.all_events.length, 5);
+  const forcedManualEvent = await page('index.php', {}, {ajax_add_event:1,...details,schedule_override:1}, false, {setup:["INSERT INTO blocked_dates (block_date,action_type,tours) VALUES ('2026-09-08','close','all')"]});
+  assert.equal(JSON.parse(forcedManualEvent.html).status, 'success');
+  assert.equal(forcedManualEvent.data.all_events.length, 6);
+  assert.ok(forcedManualEvent.data.activity_log.at(-1).summary.includes('конфликты подтверждены'));
+  const allScheduleWarnings = await page('index.php', {}, {ajax_add_event:1,...details,tour_date:'2026-09-09'}, false, {setup:[
+    "UPDATE global_settings SET setting_value='1' WHERE setting_key='working_days'",
+    "UPDATE guides SET allowed_tours='2' WHERE name='Гид А'",
+    "INSERT INTO guide_timeoffs (guide_name,date_off,reason) VALUES ('Гид А','2026-09-09','Отгул')",
+    "INSERT INTO events (id,tour_date,time,tour_id,guide) VALUES (20,'2026-09-09','14:35',2,'Гид А')"
+  ]});
+  const warningText = JSON.parse(allScheduleWarnings.html).warnings.join(' ');
+  for (const fragment of ['рабочий график','не назначен на этот маршрут','Отгул','уже есть выезд']) assert.ok(warningText.includes(fragment), fragment);
+  assert.equal(allScheduleWarnings.data.all_events.length, 6);
   checks++;
   const defaultTime = await page('index.php', {}, {ajax_add_event:1,...details,time:''});
   assert.equal(defaultTime.data.all_events.at(-1).time, '10:00'); checks++;

@@ -136,6 +136,18 @@ const {tourTimes} = window.homePageConfig;
                 saveState(); window.location.assign(response.url); return;
             }
             const data = await response.json();
+            if (response.status === 409 && data.status === 'warning' && Array.isArray(data.warnings)) {
+                const message = data.warnings.map(item => '• ' + item).join('\n');
+                if (window.confirm('Обнаружены конфликты расписания:\n\n' + message + '\n\nВсё равно создать выезд?')) {
+                    let override = form.elements.namedItem('schedule_override');
+                    if (!override) { override = document.createElement('input'); override.type='hidden'; override.name='schedule_override'; form.append(override); }
+                    override.value='1';
+                    delete form.dataset.saving; if (submit) submit.disabled=false;
+                    form.requestSubmit();
+                    return;
+                }
+                throw new Error('Выезд не создан. Исправьте конфликты расписания или подтвердите исключение.');
+            }
             if (!response.ok || data.status !== 'success') throw new Error(data.message || 'Не удалось сохранить экскурсию.');
             try {
                 sessionStorage.setItem('toast_msg', data.notification_failed ? 'Экскурсия сохранена, но уведомление Telegram не доставлено.' : 'Экскурсия сохранена');

@@ -7,6 +7,7 @@ require_once __DIR__ . '/homepage_helpers.php';
 require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/expense_helpers.php';
 require_once __DIR__ . '/booking_helpers.php';
+require_once __DIR__ . '/event_schedule_validation.php';
 $filter_error = '';
 try { $home_filters = homeFilters($_GET); } catch (InvalidArgumentException $e) { $home_filters = []; $filter_error = $e->getMessage(); }
 $home_url = homeUrl($home_filters);
@@ -57,9 +58,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_event']) || i
             recordActivity($pdo, 'update', 'event', (int)$_POST['event_id'], 'Изменён выезд: ' . $details['tour_name'] . ', ' . $details['date']);
             header('Location: ' . $return_url); exit;
         }
+        $scheduleWarnings = eventScheduleWarnings($pdo, $details['date'], $details['time'], $details['tour_id'], $details['guide']);
+        if ($scheduleWarnings && !eventScheduleOverrideRequested($_POST)) {
+            http_response_code(409);
+            echo json_encode(['status' => 'warning', 'message' => 'Обнаружены конфликты расписания.', 'warnings' => $scheduleWarnings]);
+            exit;
+        }
         $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide, notes) VALUES (?, ?, ?, ?, ?)")
             ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes']]);
-        recordActivity($pdo, 'create', 'event', (int)$pdo->lastInsertId(), 'Создан выезд: ' . $details['tour_name'] . ', ' . $details['date']);
+        recordActivity($pdo, 'create', 'event', (int)$pdo->lastInsertId(), 'Создан выезд: ' . $details['tour_name'] . ', ' . $details['date'] . ($scheduleWarnings ? ' (конфликты подтверждены)' : ''));
         $notification_failed = false;
         try {
             require_once 'telegram.php';

@@ -6,7 +6,9 @@ require_once 'auth.php';
 require_once __DIR__ . '/activity_log.php';
 require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/request_helpers.php';
+require_once __DIR__ . '/event_schedule_validation.php';
 $participant_seats_sql = participantSeatsSql($pdo);
+$schedule_event_warnings = [];
 
 if ($current_user_role !== 'admin') {
     http_response_code(403);
@@ -43,9 +45,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_single_event'])) 
         }
         if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/D', $time)) $time = '10:00';
 
-        $pdo->prepare("INSERT INTO events (tour_id, tour_date, time, guide) VALUES (?, ?, ?, ?)")->execute([$tour_id, $tour_date, $time, $guide]);
-        recordActivity($pdo, 'create', 'event', (int)$pdo->lastInsertId(), 'Создан выезд из расписания: ' . $tour_date);
-        header("Location: schedule.php?ym={$ym}&msg=event_added"); exit;
+        $schedule_event_warnings = eventScheduleWarnings($pdo, $tour_date, $time, $tour_id, $guide);
+        if (!$schedule_event_warnings || eventScheduleOverrideRequested($_POST)) {
+            $pdo->prepare("INSERT INTO events (tour_id, tour_date, time, guide) VALUES (?, ?, ?, ?)")->execute([$tour_id, $tour_date, $time, $guide]);
+            recordActivity($pdo, 'create', 'event', (int)$pdo->lastInsertId(), 'Создан выезд из расписания: ' . $tour_date . ($schedule_event_warnings ? ' (конфликты подтверждены)' : ''));
+            header("Location: schedule.php?ym={$ym}&msg=event_added"); exit;
+        }
     }
 }
 
@@ -301,6 +306,9 @@ function getGuideColor($guideName) {
         .modal-overlay.show { opacity: 1; }
         .modal-content { background: var(--card-bg); padding: 30px; border-radius: 20px; max-width: 480px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); transform: translateY(20px); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative;}
         .modal-overlay.show .modal-content { transform: translateY(0); }
+        .schedule-warning { margin: 14px 0 0; padding: 14px 16px; border: 1px solid #f1c27d; border-radius: 12px; background: #fff8e8; color: #6f4b16; font-size: 13px; line-height: 1.45; }
+        .schedule-warning ul { margin: 8px 0; padding-left: 20px; }
+        .schedule-warning p { margin: 8px 0 0; }
         .close-modal { position: absolute; top: 15px; right: 15px; background: #F1F5F9; color: var(--text-muted); border: none; width: 32px; height: 32px; border-radius: 50%; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: var(--transition);}
         .close-modal:hover { background: #E2E8F0; color: var(--text-main);}
 
@@ -546,7 +554,7 @@ function getGuideColor($guideName) {
                     <label>Выберите тур *</label>
                     <select name="tour_id" id="modalTourSelect" class="t-input" required onchange="updateModalTime()">
                         <option value="" disabled selected>-- Каталог туров --</option>
-                        <?php foreach($tours as $t): ?><option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?>
+                        <?php foreach($tours as $t): ?><option value="<?= $t['id'] ?>" <?= (int)($_POST['tour_id'] ?? 0)===(int)$t['id']?'selected':'' ?>><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?>
                     </select>
                 </div>
                 <div style="display:flex; gap:15px;">
@@ -554,15 +562,19 @@ function getGuideColor($guideName) {
                         <label>Гид</label>
                         <select name="guide" class="t-input">
                             <option value="Не назначен">Оставить без гида</option>
-                            <?php foreach($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?>
+                            <?php foreach($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>" <?= ($_POST['guide'] ?? '')===$g['name']?'selected':'' ?>><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?>
                         </select>
                     </div>
                     <div class="form-group" style="flex:1;">
                         <label>Время начала</label>
-                        <input type="time" name="time" id="modalTimeInp" class="t-input">
+                        <input type="time" name="time" id="modalTimeInp" class="t-input" value="<?= htmlspecialchars((string)($_POST['time'] ?? ''), ENT_QUOTES) ?>">
                     </div>
                 </div>
-                <button type="submit" class="btn-action" style="margin-top: 10px;">Добавить тур на эту дату</button>
+                <?php if ($schedule_event_warnings): ?>
+                    <div class="schedule-warning" role="alert"><strong>Проверьте расписание:</strong><ul><?php foreach($schedule_event_warnings as $warning): ?><li><?= htmlspecialchars($warning) ?></li><?php endforeach; ?></ul><p>Если это осознанное исключение, подтвердите создание выезда.</p></div>
+                    <input type="hidden" name="schedule_override" value="1">
+                <?php endif; ?>
+                <button type="submit" class="btn-action" style="margin-top: 10px;"><?= $schedule_event_warnings ? 'Всё равно добавить выезд' : 'Добавить тур на эту дату' ?></button>
             </form>
         </div>
 
@@ -734,6 +746,10 @@ function getGuideColor($guideName) {
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        <?php if ($schedule_event_warnings): ?>
+        openUnifiedModal(<?= json_encode((string)($_POST['tour_date'] ?? ''), JSON_UNESCAPED_UNICODE) ?>);
+        switchTab('tab-generate');
+        <?php endif; ?>
         document.querySelectorAll('.cal-cell[data-date]').forEach(cell => cell.addEventListener('keydown', event => {
             if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openUnifiedModal(cell.dataset.date); }
         }));
