@@ -55,9 +55,12 @@ function deleteEventWithFiles(PDO $pdo, int $eventId): void
     $participants = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $stmt = $pdo->prepare('SELECT * FROM expenses WHERE event_id=?'); $stmt->execute([$eventId]);
     $expenses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare('SELECT * FROM payments WHERE event_id=?'); $stmt->execute([$eventId]);
+    $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $pdo->beginTransaction();
     try {
-        recordActivity($pdo, 'delete', 'event', $eventId, 'Удалён выезд ' . ($event['tour_date'] ?? ''), ['event'=>$event,'participants'=>$participants,'expenses'=>$expenses]);
+        recordActivity($pdo, 'delete', 'event', $eventId, 'Удалён выезд ' . ($event['tour_date'] ?? ''), ['event'=>$event,'participants'=>$participants,'expenses'=>$expenses,'payments'=>$payments]);
+        $pdo->prepare('DELETE FROM payments WHERE event_id=?')->execute([$eventId]);
         $pdo->prepare('DELETE FROM expenses WHERE event_id=?')->execute([$eventId]);
         $pdo->prepare('DELETE FROM participants WHERE event_id=?')->execute([$eventId]);
         $pdo->prepare('DELETE FROM events WHERE id=?')->execute([$eventId]);

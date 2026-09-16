@@ -21,7 +21,7 @@
         const toast = document.createElement('div'); toast.className = `toast ${type}`; toast.textContent = message; root.append(toast);
         setTimeout(() => toast.remove(), 3400);
     }
-    const messages = {saved:'Профиль клиента сохранён',tag_renamed:'Тег переименован у всех клиентов',tag_deleted:'Тег удалён из базы'};
+    const messages = {saved:'Профиль клиента сохранён',tag_renamed:'Тег переименован у всех клиентов',tag_deleted:'Тег удалён из базы',client_merged:'Карточки клиентов объединены'};
     const config = window.clientPageConfig || {};
     if (messages[config.message]) {
         showToast(messages[config.message], config.message === 'tag_deleted' ? 'error' : 'success');

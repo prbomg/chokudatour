@@ -66,6 +66,7 @@ try {
           $data['booking_sources'] = $GLOBALS['pdo']->query('SELECT * FROM booking_sources ORDER BY id')->fetchAll();
           $data['users'] = $GLOBALS['pdo']->query('SELECT * FROM users ORDER BY id')->fetchAll();
           $data['activity_log'] = $GLOBALS['pdo']->query('SELECT * FROM activity_log ORDER BY id')->fetchAll();
+          $data['payments'] = $GLOBALS['pdo']->query('SELECT * FROM payments ORDER BY id')->fetchAll();
           $data['notifications'] = $GLOBALS['notifications'] ?? [];
           if ($GLOBALS['pdo']->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='client_profiles'")->fetchColumn()) {
             $data['client_profiles'] = $GLOBALS['pdo']->query('SELECT * FROM client_profiles ORDER BY phone')->fetchAll();
@@ -107,6 +108,8 @@ try {
   assert.ok(event.html.includes('Проверьте количество'));
   assert.ok(event.html.includes('Особенности выезда'));
   assert.ok(event.html.includes('Оплата на месте'));
+  assert.ok(event.html.includes('Расчёты с туристами'));
+  assert.ok(event.html.includes('id="paymentDialog"'));
   checks++;
   const eventReturn = 'event.php?id=1&return_to=' + encodeURIComponent('index.php?tour_filter=1');
   const clientFromEvent = await page('client.php', {phone:'70000000000',return_to:eventReturn});
@@ -139,6 +142,18 @@ try {
   assert.equal(savedClient.data.client_profiles[0].global_note, 'Сидит впереди');
   assert.ok(savedClient.headers.location[0].includes('msg=saved'));
   checks++;
+  const mergedClient = await page('client.php', {phone:'70000000000'}, {merge_client:1,source_phone:'79991234567'}, false, {setup:[
+    "UPDATE participants SET phone='79991234567',client_name='Дубль туриста' WHERE id=2",
+    "CREATE TABLE client_profiles (phone TEXT PRIMARY KEY,tags TEXT,global_note TEXT)",
+    "INSERT INTO client_profiles VALUES ('70000000000','VIP','Основная заметка')",
+    "INSERT INTO client_profiles VALUES ('79991234567','Семья с детьми','Заметка дубля')"
+  ]});
+  assert.equal(mergedClient.data.participants.find(p => Number(p.id) === 2).phone, '70000000000');
+  assert.equal(mergedClient.data.client_profiles.length, 1);
+  assert.equal(mergedClient.data.client_profiles[0].tags, 'VIP,Семья с детьми');
+  assert.ok(mergedClient.data.client_profiles[0].global_note.includes('Заметка дубля'));
+  assert.equal(mergedClient.data.activity_log.at(-1).entity_type, 'client');
+  checks++;
   const clientCsrf = await page('client.php', {phone:'70000000000'}, {update_profile:1,tags:['VIP'],global_note:'Не сохранять',csrf_token:''});
   assert.equal(clientCsrf.status, 403);
   assert.equal(clientCsrf.data.client_profiles.length, 0);
@@ -156,6 +171,21 @@ try {
   const decimalExpense = await page('event.php', {id:1}, {add_expense:1,amount:'12.34',category:'Прочее',description:'Копейки'});
   assert.equal(Number(decimalExpense.data.expenses.at(-1).amount), 12.34);
   assert.equal(decimalExpense.data.activity_log.at(-1).action, 'create');
+  checks++;
+  const addedPayment = await page('event.php', {id:1}, {add_payment:1,participant_id:1,operation:'payment',amount:'1250,50',method:'card',paid_at:'2026-09-05',note:'Предоплата'});
+  assert.equal(addedPayment.data.payments.length, 1);
+  assert.equal(Number(addedPayment.data.payments[0].amount), 1250.5);
+  assert.equal(addedPayment.data.payments[0].method, 'card');
+  assert.equal(addedPayment.data.activity_log.at(-1).entity_type, 'payment');
+  checks++;
+  const invalidPayment = await page('event.php', {id:1}, {add_payment:1,participant_id:1,operation:'payment',amount:'-10',method:'cash',paid_at:'2026-09-05',note:''});
+  assert.equal(invalidPayment.status, 422);
+  assert.equal(invalidPayment.data.payments.length, 0);
+  assert.ok(invalidPayment.html.includes('положительную сумму'));
+  checks++;
+  const voidedPayment = await page('event.php', {id:1}, {void_payment:1}, false, {setup:["INSERT INTO payments (id,event_id,participant_id,operation,amount,method,paid_at) VALUES (1,1,1,'payment',500,'cash','2026-09-05')"]});
+  assert.ok(voidedPayment.data.payments[0].voided_at);
+  assert.equal(voidedPayment.data.activity_log.at(-1).action, 'update');
   checks++;
   const homepageDecimalExpense = await page('index.php', {}, {add_expense:1,event_id:1,amount:'19,95',category:'Прочее',description:'Копейки с главной'});
   assert.equal(Number(homepageDecimalExpense.data.expenses.at(-1).amount), 19.95);
@@ -254,6 +284,7 @@ try {
   assert.equal(eventDeletion.entity_type, 'event');
   assert.equal(JSON.parse(eventDeletion.snapshot).participants.length, 3);
   assert.equal(JSON.parse(eventDeletion.snapshot).expenses.length, 2);
+  assert.deepEqual(JSON.parse(eventDeletion.snapshot).payments, []);
   checks++;
   const history = await page('history.php');
   assert.ok(history.html.includes('История изменений'));

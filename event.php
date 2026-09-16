@@ -8,6 +8,7 @@ require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/booking_helpers.php';
 require_once __DIR__ . '/expense_helpers.php';
+require_once __DIR__ . '/payment_helpers.php';
 
 $return_url = homeReturnUrl($_GET['return_to'] ?? 'index.php');
 $return_suffix = '&return_to=' . rawurlencode($return_url);
@@ -86,7 +87,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $participantId = (int)$_POST['del_participant'];
             $row = activityRow($pdo, 'participants', $participantId);
             if ($row && (int)$row['event_id'] === $event_id) {
-                recordActivity($pdo, 'delete', 'participant', $participantId, 'Удалено бронирование: ' . ($row['client_name'] ?? ''), ['participant'=>$row]);
+                $paymentStmt = $pdo->prepare('SELECT * FROM payments WHERE participant_id=?'); $paymentStmt->execute([$participantId]);
+                $participantPayments = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+                recordActivity($pdo, 'delete', 'participant', $participantId, 'Удалено бронирование: ' . ($row['client_name'] ?? ''), ['participant'=>$row,'payments'=>$participantPayments]);
+                $pdo->prepare('DELETE FROM payments WHERE participant_id=?')->execute([$participantId]);
                 $pdo->prepare('DELETE FROM participants WHERE id=? AND event_id=?')->execute([$participantId, $event_id]);
             }
             eventRedirect($event_id, $return_suffix, 'participant_deleted');
@@ -96,6 +100,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (isset($_POST['del_expense'])) {
             deleteExpense($pdo, $event_id, (int)$_POST['del_expense']);
             eventRedirect($event_id, $return_suffix, 'expense_deleted');
+        } elseif (isset($_POST['add_payment']) && $current_user_role === 'admin') {
+            addPayment($pdo, $event_id, $_POST);
+            eventRedirect($event_id, $return_suffix, 'payment_added');
+        } elseif (isset($_POST['void_payment']) && $current_user_role === 'admin') {
+            voidPayment($pdo, $event_id, (int)$_POST['void_payment']);
+            eventRedirect($event_id, $return_suffix, 'payment_voided');
         }
     } catch (InvalidArgumentException $e) {
         http_response_code(422);
@@ -122,16 +132,27 @@ $participants = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $stmt = $pdo->prepare('SELECT * FROM expenses WHERE event_id=? ORDER BY id DESC');
 $stmt->execute([$event_id]);
 $expenses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$stmt = $pdo->prepare('SELECT p.*,pt.client_name FROM payments p JOIN participants pt ON pt.id=p.participant_id WHERE p.event_id=? ORDER BY p.paid_at DESC,p.id DESC');
+$stmt->execute([$event_id]);
+$payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$participant_payments = [];
+foreach ($payments as $payment) {
+    if (!empty($payment['voided_at'])) continue;
+    $sign = ($payment['operation'] ?? 'payment') === 'refund' ? -1 : 1;
+    $participant_payments[(int)$payment['participant_id']] = ($participant_payments[(int)$payment['participant_id']] ?? 0) + $sign * (float)$payment['amount'];
+}
 
-$total_seats = 0; $total_income = 0; $active_bookings = 0; $cancelled_bookings = 0;
+$total_seats = 0; $total_income = 0; $active_bookings = 0; $cancelled_bookings = 0; $outstanding = 0.0;
 foreach ($participants as $participant) {
     if (($participant['status'] ?? '') === 'Отмена') { $cancelled_bookings++; continue; }
     $active_bookings++;
     $total_seats += participantSeats($participant);
     $total_income += (int)($participant['price'] ?? 0);
+    $outstanding += max(0, (float)($participant['price'] ?? 0) - (float)($participant_payments[(int)$participant['id']] ?? 0));
 }
 $total_expenses = array_reduce($expenses, fn($sum, $expense) => $sum + (float)($expense['amount'] ?? 0), 0.0);
 $profit = $total_income - $total_expenses;
+$total_received = array_sum($participant_payments);
 $months_ru = ['', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 $ts = strtotime($event[$date_col]);
 $date_formatted = date('j', $ts) . ' ' . $months_ru[(int)date('n', $ts)] . ' ' . date('Y', $ts);

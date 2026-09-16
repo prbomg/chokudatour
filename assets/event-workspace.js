@@ -55,6 +55,14 @@
     }));
     $('[data-participant-filter="active"]')?.click();
 
+    const paymentDialog = $('#paymentDialog');
+    const paymentParticipant = $('#paymentParticipant');
+    $$('.payment-btn').forEach(button => button.addEventListener('click', () => {
+        if (paymentParticipant) paymentParticipant.value = button.dataset.participantId || '';
+        openDialog(paymentDialog);
+        requestAnimationFrame(() => $('#paymentForm input[name="amount"]')?.focus());
+    }));
+
     const whatsappDialog = $('#whatsappDialog');
     const whatsappText = $('#whatsappText');
     const whatsappLink = $('#whatsappLink');
@@ -96,7 +104,9 @@
         participant_updated: 'Бронирование обновлено',
         participant_deleted: 'Бронирование удалено',
         expense_added: 'Расход добавлен',
-        expense_deleted: 'Расход удалён'
+        expense_deleted: 'Расход удалён',
+        payment_added: 'Платёжная операция сохранена',
+        payment_voided: 'Платёжная операция аннулирована'
     };
     const config = window.eventPageConfig || {};
     if (messages[config.message]) {
@@ -109,6 +119,7 @@
         showToast(config.error, 'error');
         if (config.postedAction === 'participant') prepareParticipant(config.postedParticipant || null);
         if (config.postedAction === 'expense') openDialog($('#expenseDialog'));
+        if (config.postedAction === 'payment') openDialog(paymentDialog);
         if (config.postedAction === 'event') openDialog($('#eventDialog'));
     }
 })();

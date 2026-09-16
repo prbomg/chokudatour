@@ -8,6 +8,7 @@ require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/client_workspace_helpers.php';
 require_once __DIR__ . '/client_phone_migration.php';
+require_once __DIR__ . '/activity_log.php';
 if ($current_user_role !== 'admin') { http_response_code(403); exit('Доступ закрыт.'); }
 
 $phone = normalizePhone($_GET['phone'] ?? '');
@@ -33,6 +34,10 @@ function redirectClientProfile(string $url, string $message): void
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $global_tags = clientTagsFromString($pdo->query("SELECT setting_value FROM global_settings WHERE setting_key='client_tags'")->fetchColumn());
+        if (isset($_POST['merge_client'])) {
+            mergeClientProfiles($pdo, $phone, (string)($_POST['source_phone'] ?? ''));
+            redirectClientProfile($profile_url, 'client_merged');
+        }
         if (isset($_POST['rename_tag'])) {
             $old = validateClientTag($_POST['old_tag'] ?? '');
             $new = validateClientTag($_POST['new_tag'] ?? '');
@@ -99,6 +104,9 @@ $stmt = $pdo->prepare('SELECT * FROM client_profiles WHERE phone=?'); $stmt->exe
 $profile = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['tags'=>'','global_note'=>''];
 $current_tags = clientTagsFromString($profile['tags']);
 $all_existing_tags = clientTagsFromString($pdo->query("SELECT setting_value FROM global_settings WHERE setting_key='client_tags'")->fetchColumn());
+$duplicate_stmt = $pdo->prepare("SELECT p.phone,MAX(p.{$name_col}) client_name,COUNT(*) bookings FROM participants p WHERE p.phone<>? AND p.phone<>'' GROUP BY p.phone ORDER BY client_name ASC LIMIT 500");
+$duplicate_stmt->execute([$phone]);
+$merge_candidates = $duplicate_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $sql = "SELECT p.*,e.id event_id,e.tour_date,e.time,t.name tour_name,t.public_name
         FROM participants p JOIN events e ON p.event_id=e.id JOIN tours_catalog t ON e.tour_id=t.id

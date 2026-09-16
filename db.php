@@ -67,6 +67,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS expenses (
 )");
 require_once __DIR__ . '/activity_log.php';
 ensureActivityLog($pdo);
+require_once __DIR__ . '/payment_helpers.php';
+ensurePaymentsTable($pdo);
 try { $pdo->exec("ALTER TABLE expenses ADD COLUMN receipt_path VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE expenses ADD COLUMN category VARCHAR(100) DEFAULT 'Прочее'"); } catch (Exception $e) {}
 

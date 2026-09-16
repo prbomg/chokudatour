@@ -29,7 +29,7 @@ $stmt->execute($params);
 $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $labels = ['create'=>'Создание','update'=>'Изменение','delete'=>'Удаление','restore'=>'Восстановление'];
-$types = ['event'=>'Выезд','participant'=>'Бронирование','expense'=>'Расход'];
+$types = ['event'=>'Выезд','participant'=>'Бронирование','expense'=>'Расход','payment'=>'Платёж','client'=>'Клиент'];
 ?>
 <!DOCTYPE html>
 <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">

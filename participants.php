@@ -16,6 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['ajax_load_past_part
 require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/booking_helpers.php';
 require_once __DIR__ . '/activity_log.php';
+require_once __DIR__ . '/payment_helpers.php';
 $page_error = '';
 
 // --- РЕДАКТИРОВАНИЕ УЧАСТНИКА ---
@@ -41,7 +42,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_participant'])) {
     $participantId = (int)$_POST['del_participant'];
     $row = activityRow($pdo, 'participants', $participantId);
     if ($row) {
-        recordActivity($pdo, 'delete', 'participant', $participantId, 'Удалено бронирование: ' . ($row['client_name'] ?? ''), ['participant'=>$row]);
+        $paymentStmt = $pdo->prepare('SELECT * FROM payments WHERE participant_id=?'); $paymentStmt->execute([$participantId]);
+        $participantPayments = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+        recordActivity($pdo, 'delete', 'participant', $participantId, 'Удалено бронирование: ' . ($row['client_name'] ?? ''), ['participant'=>$row,'payments'=>$participantPayments]);
+        $pdo->prepare('DELETE FROM payments WHERE participant_id=?')->execute([$participantId]);
         $pdo->prepare("DELETE FROM participants WHERE id = ?")->execute([$participantId]);
     }
     $qs = preg_replace('/&?del_participant=[^&]*/', '', $_SERVER['QUERY_STRING']);

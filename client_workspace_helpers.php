@@ -53,3 +53,37 @@ function clientListUrl(array $input): string
     $query = http_build_query($filters, '', '&', PHP_QUERY_RFC3986);
     return 'clients.php' . ($query === '' ? '' : '?' . $query);
 }
+
+function mergeClientProfiles(PDO $pdo, string $targetPhone, string $sourcePhone): int
+{
+    $targetPhone = normalizePhone($targetPhone);
+    $sourcePhone = normalizePhone($sourcePhone);
+    if ($targetPhone === '' || $sourcePhone === '' || $targetPhone === $sourcePhone) throw new InvalidArgumentException('Выберите другую карточку клиента.');
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM participants WHERE phone=?'); $stmt->execute([$targetPhone]);
+    if (!$stmt->fetchColumn()) throw new InvalidArgumentException('Основная карточка клиента не найдена.');
+    $stmt->execute([$sourcePhone]);
+    if (!$stmt->fetchColumn()) throw new InvalidArgumentException('Карточка-дубль не найдена.');
+
+    $profileStmt = $pdo->prepare('SELECT * FROM client_profiles WHERE phone=?');
+    $profileStmt->execute([$targetPhone]); $target = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: ['tags'=>'','global_note'=>''];
+    $profileStmt->execute([$sourcePhone]); $source = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: ['tags'=>'','global_note'=>''];
+    $tags = array_values(array_unique(array_merge(clientTagsFromString($target['tags']), clientTagsFromString($source['tags']))));
+    $targetNote = trim((string)$target['global_note']); $sourceNote = trim((string)$source['global_note']);
+    $note = $targetNote;
+    if ($sourceNote !== '' && $sourceNote !== $targetNote) $note .= ($note === '' ? '' : "\n\n") . 'Из объединённой карточки ' . $sourcePhone . ":\n" . $sourceNote;
+    if (mb_strlen($note) > 5000) throw new InvalidArgumentException('Общие заметки после объединения превышают 5000 символов. Сократите одну из заметок.');
+
+    $pdo->beginTransaction();
+    try {
+        $update = $pdo->prepare('UPDATE participants SET phone=? WHERE phone=?');
+        $update->execute([$targetPhone, $sourcePhone]);
+        $moved = $update->rowCount();
+        $exists = $pdo->prepare('SELECT COUNT(*) FROM client_profiles WHERE phone=?'); $exists->execute([$targetPhone]);
+        if ($exists->fetchColumn()) $pdo->prepare('UPDATE client_profiles SET tags=?,global_note=? WHERE phone=?')->execute([implode(',', $tags),$note,$targetPhone]);
+        else $pdo->prepare('INSERT INTO client_profiles (phone,tags,global_note) VALUES (?,?,?)')->execute([$targetPhone,implode(',', $tags),$note]);
+        $pdo->prepare('DELETE FROM client_profiles WHERE phone=?')->execute([$sourcePhone]);
+        recordActivity($pdo, 'update', 'client', null, 'Объединены карточки ' . $sourcePhone . ' → ' . $targetPhone);
+        $pdo->commit();
+        return $moved;
+    } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+}

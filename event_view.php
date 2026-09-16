@@ -14,6 +14,7 @@
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
     <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 0 0 6v4h20v-4a3 3 0 0 0 0-6V5H2Z"/><path d="M13 5v2M13 11v2M13 17v2"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 7V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h15v10H5a3 3 0 0 1-3-3V6"/><path d="M16 13h2"/></symbol>
 </svg>
 
 <div id="toast-container" aria-live="polite"></div>
@@ -59,6 +60,7 @@
             <div class="metric"><span>Забронировано мест</span><strong><?= $total_seats ?></strong></div>
             <?php if ($current_user_role === 'admin'): ?>
                 <div class="metric"><span>Стоимость бронирований</span><strong><?= eventMoney($total_income) ?></strong></div>
+                <div class="metric"><span>Получено оплат</span><strong><?= eventMoney($total_received) ?></strong><small>Остаток: <?= eventMoney($outstanding) ?></small></div>
                 <div class="metric metric-result"><span>Плановый результат</span><strong><?= eventMoney($profit) ?></strong><small>Расходы: <?= eventMoney($total_expenses) ?></small></div>
             <?php endif; ?>
         </section>
@@ -100,7 +102,8 @@
                                 <?php if (!empty($participant['email'])): ?><a href="mailto:<?= htmlspecialchars($participant['email'], ENT_QUOTES) ?>"><?= htmlspecialchars($participant['email']) ?></a><?php endif; ?>
                             </div>
                         </div>
-                        <div class="booking-summary"><strong><?= $seats ?> <?= $seats === 1 ? 'место' : 'мест' ?></strong><span><?= eventMoney($participant['price'] ?? 0) ?> · <?= htmlspecialchars($participant['source'] ?? '') ?></span>
+                        <?php $paidAmount = (float)($participant_payments[$participantId] ?? 0); $bookingBalance = max(0, (float)($participant['price'] ?? 0) - $paidAmount); ?>
+                        <div class="booking-summary"><strong><?= eventCountPhrase($seats, ['место','места','мест']) ?></strong><span><?= eventMoney($participant['price'] ?? 0) ?> · <?= htmlspecialchars($participant['source'] ?? '') ?></span><?php if ($current_user_role === 'admin'): ?><span class="payment-state<?= $bookingBalance <= 0 ? ' is-paid' : '' ?>">Оплачено <?= eventMoney($paidAmount) ?><?= $bookingBalance > 0 ? ' · осталось ' . eventMoney($bookingBalance) : '' ?></span><?php endif; ?>
                             <?php if (participantSeatsConflict($participant)): ?><button type="button" class="data-warning" data-edit-participant='<?= htmlspecialchars(json_encode($editData, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>'>Проверьте количество мест — значения расходятся</button><?php endif; ?>
                         </div>
                         <div><span class="status" data-status="<?= htmlspecialchars($participant['status'] ?? '', ENT_QUOTES) ?>"><?= htmlspecialchars($participant['status'] ?? '') ?></span></div>
@@ -109,6 +112,7 @@
                             <a href="tel:<?= htmlspecialchars($participant['phone'] ?? '', ENT_QUOTES) ?>" class="icon-btn" title="Позвонить" aria-label="Позвонить <?= htmlspecialchars($participantName, ENT_QUOTES) ?>"><svg><use href="#i-phone"/></svg></a>
                             <button type="button" class="icon-btn wa-btn" title="WhatsApp" aria-label="Написать в WhatsApp" data-phone="<?= htmlspecialchars($cleanPhone, ENT_QUOTES) ?>" data-message="<?= htmlspecialchars($message, ENT_QUOTES) ?>"><svg><use href="#i-message"/></svg></button>
                             <?php if (!$cancelled && !empty($participant['ticket_token'])): ?><a href="ticket.php?token=<?= rawurlencode($participant['ticket_token']) ?>" target="_blank" rel="noopener noreferrer" class="icon-btn" title="Открыть билет" aria-label="Открыть билет туриста"><svg><use href="#i-ticket"/></svg></a><?php endif; ?>
+                            <?php if ($current_user_role === 'admin' && !$cancelled): ?><button type="button" class="icon-btn payment-btn" title="Добавить оплату" aria-label="Добавить оплату" data-participant-id="<?= $participantId ?>" data-participant-name="<?= htmlspecialchars($participantName, ENT_QUOTES) ?>"><svg><use href="#i-wallet"/></svg></button><?php endif; ?>
                             <button type="button" class="icon-btn" title="Редактировать" aria-label="Редактировать бронирование" data-edit-participant='<?= htmlspecialchars(json_encode($editData, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>'><svg><use href="#i-edit"/></svg></button>
                             <?php if ($current_user_role === 'admin'): ?><?= deleteControl($event_return_url, 'del_participant', $participantId, 'Удалить туриста?') ?><?php endif; ?>
                         </div>
@@ -117,6 +121,30 @@
                 <?php if (!$participants): ?><div class="empty-state">В этом выезде пока нет участников.</div><?php endif; ?>
             </div>
         </section>
+
+        <?php if ($current_user_role === 'admin'): ?>
+        <section class="workspace-section" id="payments">
+            <header class="section-header">
+                <div><div class="eyebrow">Расчёты с туристами</div><h2>Платежи</h2><p><?= eventCountPhrase(count($payments), ['операция','операции','операций']) ?> · получено <?= eventMoney($total_received) ?><?php if ($outstanding > 0): ?> · осталось <?= eventMoney($outstanding) ?><?php endif; ?></p></div>
+                <?php if ($participants): ?><button type="button" class="btn btn-secondary" data-open-dialog="paymentDialog"><svg><use href="#i-plus"/></svg>Добавить операцию</button><?php endif; ?>
+            </header>
+            <div class="payment-list">
+                <div class="payment-head" aria-hidden="true"><span>Дата</span><span>Турист</span><span>Операция</span><span>Способ</span><span>Комментарий</span><span>Сумма</span><span></span></div>
+                <?php foreach ($payments as $payment): $voided = !empty($payment['voided_at']); ?>
+                    <article class="payment-row<?= $voided ? ' is-voided' : '' ?>">
+                        <strong><?= htmlspecialchars(date('d.m.Y', strtotime($payment['paid_at']))) ?></strong>
+                        <span><?= htmlspecialchars($payment['client_name']) ?></span>
+                        <span class="payment-kind <?= $payment['operation']==='refund'?'refund':'income' ?>"><?= $payment['operation']==='refund'?'Возврат':'Оплата' ?></span>
+                        <span><?= htmlspecialchars(paymentMethods()[$payment['method']] ?? $payment['method']) ?></span>
+                        <span class="payment-note"><?= $voided ? 'Аннулировано' . ($payment['voided_by'] ? ': ' . htmlspecialchars($payment['voided_by']) : '') : (!empty($payment['note']) ? htmlspecialchars($payment['note']) : 'Без комментария') ?></span>
+                        <strong class="payment-amount <?= $payment['operation']==='refund'?'refund':'' ?>"><?= $payment['operation']==='refund'?'−':'+' ?><?= eventMoney($payment['amount']) ?></strong>
+                        <div class="row-actions"><?php if (!$voided): ?><form method="post" onsubmit="return confirm('Аннулировать эту операцию? Запись останется в журнале.')"><?= formTokenInput() ?><button class="icon-btn btn-del" name="void_payment" value="<?= (int)$payment['id'] ?>" title="Аннулировать" aria-label="Аннулировать операцию"><svg><use href="#i-close"/></svg></button></form><?php endif; ?></div>
+                    </article>
+                <?php endforeach; ?>
+                <?php if (!$payments): ?><div class="empty-state">Платежи ещё не добавлены.</div><?php endif; ?>
+            </div>
+        </section>
+        <?php endif; ?>
 
         <section class="workspace-section" id="expenses">
             <header class="section-header">
@@ -154,6 +182,23 @@
         <footer><button type="button" class="btn btn-quiet" data-close-dialog>Отмена</button><button class="btn btn-primary" type="submit">Сохранить изменения</button></footer>
     </form>
 </dialog>
+
+<?php if ($current_user_role === 'admin'): ?>
+<dialog class="app-dialog" id="paymentDialog">
+    <form method="POST" class="dialog-form" id="paymentForm"><?= formTokenInput() ?><input type="hidden" name="add_payment" value="1">
+        <header><div><span class="eyebrow">Расчёты с туристом</span><h2>Добавить операцию</h2></div><button type="button" class="dialog-close" data-close-dialog aria-label="Закрыть"><svg><use href="#i-close"/></svg></button></header>
+        <div class="form-grid">
+            <label class="field field-wide">Бронирование<select name="participant_id" id="paymentParticipant" required><?php foreach ($participants as $participant): if (($participant['status']??'')==='Отмена') continue; $name=$participant['client_name']??$participant['name']??''; ?><option value="<?= (int)$participant['id'] ?>"><?= htmlspecialchars($name) ?> · <?= eventMoney($participant['price']??0) ?></option><?php endforeach; ?></select></label>
+            <label class="field">Операция<select name="operation"><option value="payment">Оплата</option><option value="refund">Возврат</option></select></label>
+            <label class="field">Сумма, ₽<input type="number" name="amount" min="0.01" max="99999999.99" step="0.01" required placeholder="0,00"></label>
+            <label class="field">Способ<select name="method"><?php foreach (paymentMethods() as $value=>$label): ?><option value="<?= $value ?>"><?= htmlspecialchars($label) ?></option><?php endforeach; ?></select></label>
+            <label class="field">Дата<input type="date" name="paid_at" value="<?= date('Y-m-d') ?>" required></label>
+            <label class="field field-wide">Комментарий<input name="note" maxlength="500" placeholder="Например, предоплата переводом"></label>
+        </div>
+        <footer><button type="button" class="btn btn-quiet" data-close-dialog>Отмена</button><button class="btn btn-primary" type="submit">Сохранить операцию</button></footer>
+    </form>
+</dialog>
+<?php endif; ?>
 <?php endif; ?>
 
 <dialog class="app-dialog" id="participantDialog">
@@ -195,7 +240,7 @@
 </dialog>
 
 <?php
-$posted_action = isset($_POST['add_participant']) || isset($_POST['update_participant']) ? 'participant' : (isset($_POST['add_expense']) ? 'expense' : (isset($_POST['update_event_details']) ? 'event' : ''));
+$posted_action = isset($_POST['add_participant']) || isset($_POST['update_participant']) ? 'participant' : (isset($_POST['add_expense']) ? 'expense' : (isset($_POST['add_payment']) ? 'payment' : (isset($_POST['update_event_details']) ? 'event' : '')));
 $posted_participant = $posted_action === 'participant' ? [
     'id'=>(int)($_POST['participant_id'] ?? 0), 'client_name'=>$_POST['client_name'] ?? '', 'phone'=>$_POST['phone'] ?? '',
     'email'=>$_POST['email'] ?? '', 'seats'=>$_POST['seats'] ?? 1, 'price'=>$_POST['price'] ?? 0,

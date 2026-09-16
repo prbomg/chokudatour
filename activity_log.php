@@ -34,7 +34,7 @@ function recordActivity(PDO $pdo, string $action, string $entityType, ?int $enti
 
 function activityRow(PDO $pdo, string $table, int $id): ?array
 {
-    if (!in_array($table, ['events', 'participants', 'expenses'], true)) throw new InvalidArgumentException('Недопустимый тип записи.');
+    if (!in_array($table, ['events', 'participants', 'expenses', 'payments'], true)) throw new InvalidArgumentException('Недопустимый тип записи.');
     $stmt = $pdo->prepare("SELECT * FROM {$table} WHERE id=?");
     $stmt->execute([$id]);
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -42,7 +42,7 @@ function activityRow(PDO $pdo, string $table, int $id): ?array
 
 function insertSnapshotRow(PDO $pdo, string $table, array $row): void
 {
-    if (!in_array($table, ['events', 'participants', 'expenses'], true) || !$row) throw new InvalidArgumentException('Некорректный снимок записи.');
+    if (!in_array($table, ['events', 'participants', 'expenses', 'payments'], true) || !$row) throw new InvalidArgumentException('Некорректный снимок записи.');
     $columns = array_keys($row);
     foreach ($columns as $column) if (!preg_match('/^[a-z_]+$/D', $column)) throw new InvalidArgumentException('Некорректный снимок записи.');
     $quoted = implode(',', array_map(fn($column) => "`{$column}`", $columns));
@@ -70,11 +70,13 @@ function restoreActivity(PDO $pdo, int $activityId): string
             insertSnapshotRow($pdo, 'events', $event);
             foreach (($snapshot['participants'] ?? []) as $row) insertSnapshotRow($pdo, 'participants', $row);
             foreach (($snapshot['expenses'] ?? []) as $row) insertSnapshotRow($pdo, 'expenses', $row);
+            foreach (($snapshot['payments'] ?? []) as $row) insertSnapshotRow($pdo, 'payments', $row);
         } elseif ($type === 'participant') {
             $row = $snapshot['participant'] ?? [];
             if (!activityRow($pdo, 'events', (int)($row['event_id'] ?? 0))) throw new InvalidArgumentException('Сначала восстановите связанный выезд.');
             if (activityRow($pdo, 'participants', (int)($row['id'] ?? 0))) throw new InvalidArgumentException('Идентификатор бронирования уже занят.');
             insertSnapshotRow($pdo, 'participants', $row);
+            foreach (($snapshot['payments'] ?? []) as $payment) insertSnapshotRow($pdo, 'payments', $payment);
         } elseif ($type === 'expense') {
             $row = $snapshot['expense'] ?? [];
             if (!activityRow($pdo, 'events', (int)($row['event_id'] ?? 0))) throw new InvalidArgumentException('Сначала восстановите связанный выезд.');

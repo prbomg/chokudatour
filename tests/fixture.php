@@ -29,6 +29,7 @@ class FixturePDO extends PDO
         $this->exec("CREATE TABLE blocked_dates (id INTEGER PRIMARY KEY, block_date TEXT, tour_ids TEXT, reason TEXT, action_type TEXT, tours TEXT)");
         $this->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, role TEXT)");
         $this->exec("CREATE TABLE activity_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT, user_name TEXT DEFAULT '', action TEXT, entity_type TEXT, entity_id INT, summary TEXT DEFAULT '', snapshot TEXT, restored_at TEXT, restored_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        $this->exec("CREATE TABLE payments (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INT, participant_id INT, operation TEXT DEFAULT 'payment', amount DECIMAL(10,2), method TEXT DEFAULT 'cash', paid_at TEXT, note TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP, voided_at TEXT, voided_by TEXT)");
         $this->exec("INSERT INTO tours_catalog (id, name, public_name, default_start_time, tour_type, prices) VALUES (1, 'Длинное название экскурсии в историческую усадьбу', 'Тестовый тур', '10:00', 'Групповая', '{\"1\":1000}'), (2, 'Второй тур', 'Второй тур', '11:00', 'Индивидуальная', '{\"1\":2000}')");
         $this->exec("INSERT INTO guides (name, allowed_tours) VALUES ('Гид А', 'all'), ('Гид Б', 'all')");
         $this->exec("INSERT INTO booking_sources (id,name) VALUES (1,'Сайт'), (2,'CRM')");
