@@ -65,6 +65,7 @@ try {
           $data['guides'] = $GLOBALS['pdo']->query('SELECT * FROM guides ORDER BY id')->fetchAll();
           $data['booking_sources'] = $GLOBALS['pdo']->query('SELECT * FROM booking_sources ORDER BY id')->fetchAll();
           $data['users'] = $GLOBALS['pdo']->query('SELECT * FROM users ORDER BY id')->fetchAll();
+          $data['activity_log'] = $GLOBALS['pdo']->query('SELECT * FROM activity_log ORDER BY id')->fetchAll();
           $data['notifications'] = $GLOBALS['notifications'] ?? [];
           if ($GLOBALS['pdo']->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='client_profiles'")->fetchColumn()) {
             $data['client_profiles'] = $GLOBALS['pdo']->query('SELECT * FROM client_profiles ORDER BY phone')->fetchAll();
@@ -154,6 +155,7 @@ try {
   checks++;
   const decimalExpense = await page('event.php', {id:1}, {add_expense:1,amount:'12.34',category:'Прочее',description:'Копейки'});
   assert.equal(Number(decimalExpense.data.expenses.at(-1).amount), 12.34);
+  assert.equal(decimalExpense.data.activity_log.at(-1).action, 'create');
   checks++;
   const homepageDecimalExpense = await page('index.php', {}, {add_expense:1,event_id:1,amount:'19,95',category:'Прочее',description:'Копейки с главной'});
   assert.equal(Number(homepageDecimalExpense.data.expenses.at(-1).amount), 19.95);
@@ -240,6 +242,31 @@ try {
   assert.ok(settings.html.includes('assets/settings-workspace.css'));
   assert.ok(settings.html.includes('name="csrf_token"'));
   assert.ok(settings.html.includes('type="password"'));
+  checks++;
+  const deletedParticipant = await page('event.php', {id:1}, {del_participant:1});
+  assert.equal(deletedParticipant.data.participants.some(p => Number(p.id) === 1), false);
+  assert.equal(deletedParticipant.data.activity_log.at(-1).entity_type, 'participant');
+  assert.ok(JSON.parse(deletedParticipant.data.activity_log.at(-1).snapshot).participant.client_name.includes('Тестовый турист'));
+  checks++;
+  const deletedEvent = await page('index.php', {}, {delete_event:1});
+  assert.equal(deletedEvent.data.all_events.some(e => Number(e.id) === 1), false);
+  const eventDeletion = deletedEvent.data.activity_log.at(-1);
+  assert.equal(eventDeletion.entity_type, 'event');
+  assert.equal(JSON.parse(eventDeletion.snapshot).participants.length, 3);
+  assert.equal(JSON.parse(eventDeletion.snapshot).expenses.length, 2);
+  checks++;
+  const history = await page('history.php');
+  assert.ok(history.html.includes('История изменений'));
+  assert.ok(history.html.includes('Последние 200 действий'));
+  checks++;
+  const restoreSnapshot = JSON.stringify({participant:{id:1,event_id:1,client_name:'Восстановленный турист',phone:'70000000001',email:'',seats:1,places:1,price:1200,source:'CRM',status:'Бронь',notes:'',ticket_token:'restore-token'}}).replaceAll("'", "''");
+  const restoredParticipant = await page('history.php', {}, {restore_activity:1}, false, {setup:[
+    'DELETE FROM participants WHERE id=1',
+    `INSERT INTO activity_log (id,user_name,action,entity_type,entity_id,summary,snapshot) VALUES (1,'Администратор','delete','participant',1,'Удалено бронирование','${restoreSnapshot}')`
+  ]});
+  assert.equal(restoredParticipant.data.participants.find(p => Number(p.id) === 1).client_name, 'Восстановленный турист');
+  assert.ok(restoredParticipant.data.activity_log.find(row => Number(row.id) === 1).restored_at);
+  assert.equal(restoredParticipant.data.activity_log.at(-1).action, 'restore');
   checks++;
   const safeSettingsGet = await page('settings.php', {del_source:1});
   assert.equal(safeSettingsGet.data.booking_sources.length, 2);

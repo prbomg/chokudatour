@@ -58,6 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $details = homeEventDetails($pdo, $_POST);
             $pdo->prepare("UPDATE events SET {$date_col}=?, {$time_col}=?, tour_id=?, {$guide_col}=?, notes=? WHERE id=?")
                 ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes'], $event_id]);
+            recordActivity($pdo, 'update', 'event', $event_id, 'Изменён выезд: ' . $details['tour_name'] . ', ' . $details['date']);
             eventRedirect($event_id, $return_suffix, 'event_updated');
         } elseif (isset($_POST['add_participant']) || isset($_POST['update_participant'])) {
             $data = eventParticipantInput($pdo, $_POST);
@@ -69,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $params = array_merge([$event_id, $data['name'], $data['phone'], $data['email']], $seat_binding['values'], [$data['price'], $data['source'], $data['status'], $data['notes']]);
                 if ($token_sql) $params[] = bin2hex(random_bytes(16));
                 $pdo->prepare("INSERT INTO participants (event_id, {$name_col}, phone, email, {$seat_binding['columns']}, price, source, status, notes{$token_sql}) VALUES (?, ?, ?, ?, {$seat_binding['placeholders']}, ?, ?, ?, ?" . ($token_sql ? ', ?' : '') . ')')->execute($params);
+                recordActivity($pdo, 'create', 'participant', (int)$pdo->lastInsertId(), 'Добавлено бронирование: ' . $data['name']);
                 eventRedirect($event_id, $return_suffix, 'participant_added');
             }
             $participantId = (int)($_POST['participant_id'] ?? 0);
@@ -78,9 +80,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             assertEventCapacity($pdo, $event_id, $data['seats'], $data['status'], $participantId);
             $pdo->prepare("UPDATE participants SET {$name_col}=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=? AND event_id=?")
                 ->execute(array_merge([$data['name'], $data['phone'], $data['email']], $seat_binding['values'], [$data['price'], $data['source'], $data['status'], $data['notes'], $participantId, $event_id]));
+            recordActivity($pdo, 'update', 'participant', $participantId, 'Изменено бронирование: ' . $data['name']);
             eventRedirect($event_id, $return_suffix, 'participant_updated');
         } elseif (isset($_POST['del_participant']) && $current_user_role === 'admin') {
-            $pdo->prepare('DELETE FROM participants WHERE id=? AND event_id=?')->execute([(int)$_POST['del_participant'], $event_id]);
+            $participantId = (int)$_POST['del_participant'];
+            $row = activityRow($pdo, 'participants', $participantId);
+            if ($row && (int)$row['event_id'] === $event_id) {
+                recordActivity($pdo, 'delete', 'participant', $participantId, 'Удалено бронирование: ' . ($row['client_name'] ?? ''), ['participant'=>$row]);
+                $pdo->prepare('DELETE FROM participants WHERE id=? AND event_id=?')->execute([$participantId, $event_id]);
+            }
             eventRedirect($event_id, $return_suffix, 'participant_deleted');
         } elseif (isset($_POST['add_expense'])) {
             addExpense($pdo, $event_id, $_POST, $_FILES);

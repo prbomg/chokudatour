@@ -15,6 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['ajax_load_past_part
 }
 require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/booking_helpers.php';
+require_once __DIR__ . '/activity_log.php';
 $page_error = '';
 
 // --- РЕДАКТИРОВАНИЕ УЧАСТНИКА ---
@@ -29,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])
         $seat_binding = participantSeatBinding($pdo, $data['seats']);
         $pdo->prepare("UPDATE participants SET client_name=?, phone=?, email=?, {$seat_binding['assignments']}, price=?, source=?, status=?, notes=? WHERE id=?")
             ->execute(array_merge([$data['name'], $data['phone'], $data['email']], $seat_binding['values'], [$data['price'], $data['source'], $data['status'], $data['notes'], $p_id]));
+        recordActivity($pdo, 'update', 'participant', $p_id, 'Изменено бронирование: ' . $data['name']);
         $qs = preg_replace('/&?msg=[^&]*/', '', $_SERVER['QUERY_STRING']);
         header("Location: participants.php?" . $qs . ($qs ? '&' : '') . "msg=updated"); exit;
     } catch (InvalidArgumentException $e) { http_response_code(422); $page_error = $e->getMessage(); }
@@ -36,7 +38,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_participant'])
 
 // --- УДАЛЕНИЕ УЧАСТНИКА ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_participant'])) {
-    $pdo->prepare("DELETE FROM participants WHERE id = ?")->execute([(int)$_POST['del_participant']]);
+    $participantId = (int)$_POST['del_participant'];
+    $row = activityRow($pdo, 'participants', $participantId);
+    if ($row) {
+        recordActivity($pdo, 'delete', 'participant', $participantId, 'Удалено бронирование: ' . ($row['client_name'] ?? ''), ['participant'=>$row]);
+        $pdo->prepare("DELETE FROM participants WHERE id = ?")->execute([$participantId]);
+    }
     $qs = preg_replace('/&?del_participant=[^&]*/', '', $_SERVER['QUERY_STRING']);
     $qs = preg_replace('/&?msg=[^&]*/', '', $qs);
     header("Location: participants.php?" . $qs . ($qs ? '&' : '') . "msg=deleted"); exit;

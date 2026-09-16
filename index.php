@@ -52,10 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_event']) || i
             requireEventAccess($pdo, (int)$_POST['event_id'], $current_user_role, $current_user_name);
             $pdo->prepare("UPDATE events SET tour_date=?, time=?, tour_id=?, guide=?, notes=? WHERE id=?")
                 ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes'], (int)$_POST['event_id']]);
+            recordActivity($pdo, 'update', 'event', (int)$_POST['event_id'], 'Изменён выезд: ' . $details['tour_name'] . ', ' . $details['date']);
             header('Location: ' . $return_url); exit;
         }
         $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide, notes) VALUES (?, ?, ?, ?, ?)")
             ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes']]);
+        recordActivity($pdo, 'create', 'event', (int)$pdo->lastInsertId(), 'Создан выезд: ' . $details['tour_name'] . ', ' . $details['date']);
         $notification_failed = false;
         try {
             require_once 'telegram.php';

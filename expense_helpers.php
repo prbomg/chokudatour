@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/file_storage.php';
+require_once __DIR__ . '/activity_log.php';
 
 function expenseInput(PDO $pdo, array $input): array
 {
@@ -34,27 +35,32 @@ function addExpense(PDO $pdo, int $eventId, array $input, array $files): void
     $receipt = storeReceipt($files['receipt'] ?? []);
     try {
         $pdo->prepare('INSERT INTO expenses (event_id, amount, category, description, receipt_path) VALUES (?, ?, ?, ?, ?)')->execute([$eventId, $data['amount'], $data['category'], $data['description'], $receipt]);
+        recordActivity($pdo, 'create', 'expense', (int)$pdo->lastInsertId(), 'Добавлен расход ' . $data['amount'] . ' ₽');
     } catch (Throwable $e) { deleteUploadFile($receipt); throw $e; }
 }
 
 function deleteExpense(PDO $pdo, int $eventId, int $expenseId): void
 {
-    $stmt = $pdo->prepare('SELECT receipt_path FROM expenses WHERE id=? AND event_id=?'); $stmt->execute([$expenseId, $eventId]);
-    $path = (string)($stmt->fetchColumn() ?: '');
+    $row = activityRow($pdo, 'expenses', $expenseId);
+    if (!$row || (int)$row['event_id'] !== $eventId) return;
+    recordActivity($pdo, 'delete', 'expense', $expenseId, 'Удалён расход ' . $row['amount'] . ' ₽', ['expense'=>$row]);
     $pdo->prepare('DELETE FROM expenses WHERE id=? AND event_id=?')->execute([$expenseId, $eventId]);
-    deleteUploadFile($path);
 }
 
 function deleteEventWithFiles(PDO $pdo, int $eventId): void
 {
-    $stmt = $pdo->prepare('SELECT receipt_path FROM expenses WHERE event_id=?'); $stmt->execute([$eventId]);
-    $paths = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    $event = activityRow($pdo, 'events', $eventId);
+    if (!$event) return;
+    $stmt = $pdo->prepare('SELECT * FROM participants WHERE event_id=?'); $stmt->execute([$eventId]);
+    $participants = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare('SELECT * FROM expenses WHERE event_id=?'); $stmt->execute([$eventId]);
+    $expenses = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $pdo->beginTransaction();
     try {
+        recordActivity($pdo, 'delete', 'event', $eventId, 'Удалён выезд ' . ($event['tour_date'] ?? ''), ['event'=>$event,'participants'=>$participants,'expenses'=>$expenses]);
         $pdo->prepare('DELETE FROM expenses WHERE event_id=?')->execute([$eventId]);
         $pdo->prepare('DELETE FROM participants WHERE event_id=?')->execute([$eventId]);
         $pdo->prepare('DELETE FROM events WHERE id=?')->execute([$eventId]);
         $pdo->commit();
     } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
-    foreach ($paths as $path) deleteUploadFile((string)$path);
 }

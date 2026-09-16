@@ -8,7 +8,7 @@ const root = new URL('../',import.meta.url);
 const php = new PHP(await loadPHPRuntime(await getPHPLoaderModule()));
 php.mkdir('/app');
 php.mkdir('/app/assets');
-const allowed = ['index.php','event.php','client.php','clients.php','schedule.php','tours.php','tour_builder.php','participants.php','analytics.php','settings.php','widget.php'];
+const allowed = ['index.php','event.php','client.php','clients.php','schedule.php','tours.php','tour_builder.php','participants.php','analytics.php','settings.php','history.php','widget.php'];
 for (const file of (await readdir(root)).filter(f=>f.endsWith('.php'))) php.writeFile('/app/'+file,await readFile(new URL(file,root)));
 for (const file of (await readdir(new URL('../assets/',import.meta.url)))) php.writeFile('/app/assets/'+file,await readFile(new URL('../assets/'+file,import.meta.url)));
 php.writeFile('/app/fixture.php',await readFile(new URL('fixture.php',import.meta.url)));

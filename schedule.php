@@ -3,6 +3,7 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once 'auth.php';
+require_once __DIR__ . '/activity_log.php';
 require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/request_helpers.php';
 $participant_seats_sql = participantSeatsSql($pdo);
@@ -55,6 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_single_event'])) 
         if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/D', $time)) $time = '10:00';
 
         $pdo->prepare("INSERT INTO events (tour_id, tour_date, time, guide) VALUES (?, ?, ?, ?)")->execute([$tour_id, $tour_date, $time, $guide]);
+        recordActivity($pdo, 'create', 'event', (int)$pdo->lastInsertId(), 'Создан выезд из расписания: ' . $tour_date);
         header("Location: schedule.php?ym={$ym}&msg=event_added"); exit;
     }
 }

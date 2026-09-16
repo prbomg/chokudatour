@@ -2,6 +2,7 @@
 require_once __DIR__ . '/homepage_helpers.php';
 require_once __DIR__ . '/booking_helpers.php';
 require_once __DIR__ . '/participant_seats.php';
+require_once __DIR__ . '/activity_log.php';
 
 function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
 {
@@ -77,11 +78,13 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
             $time = $tour['default_start_time'] ?: '10:00';
             $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide, notes) VALUES (?, ?, ?, ?, 'Заявка с сайта')")->execute([$date, $time, $tourId, $assigned]);
             $eventId = (int)$pdo->lastInsertId();
+            recordActivity($pdo, 'create', 'event', $eventId, 'Создан выезд по заявке с сайта: ' . $date);
         }
         $binding = participantSeatBinding($pdo, $seats);
         $pdo->prepare("INSERT INTO participants (event_id, client_name, {$binding['columns']}, price, phone, email, source, status, notes, ticket_token) VALUES (?, ?, {$binding['placeholders']}, ?, ?, ?, 'Сайт', 'Бронь', ?, ?)")
             ->execute(array_merge([$eventId, $name], $binding['values'], [$price, $phone, $email, $notes, bin2hex(random_bytes(16))]));
         $participantId = (int)$pdo->lastInsertId();
+        recordActivity($pdo, 'create', 'participant', $participantId, 'Получена заявка с сайта: ' . $name);
         $pdo->prepare('INSERT INTO booking_requests (token, participant_id) VALUES (?, ?)')->execute([$token, $participantId]);
         $pdo->commit();
         return ['duplicate' => false, 'date' => $date, 'tour' => $tour['public_name'] ?: $tour['name'], 'name' => $name, 'phone' => $phone, 'seats' => $seats, 'price' => $price, 'guide' => $assigned];
