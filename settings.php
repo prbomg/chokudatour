@@ -136,6 +136,9 @@ $users = $pdo->query("SELECT * FROM users ORDER BY role ASC, name ASC")->fetchAl
 
 $tg_bot = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'tg_bot'")->fetchColumn() ?: '';
 $tg_chat = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'tg_chat'")->fetchColumn() ?: '';
+$last_backup_at = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'last_database_backup_at'")->fetchColumn() ?: '';
+$last_backup_file = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'last_database_backup_file'")->fetchColumn() ?: '';
+$last_backup_label = $last_backup_at !== '' ? date('d.m.Y в H:i', strtotime($last_backup_at)) : 'Резервная копия ещё не создавалась';
 
 $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token=" . $admin_sync_token;
 ?>
@@ -282,6 +285,20 @@ $admin_ics_link = "https://" . $_SERVER['HTTP_HOST'] . "/calendar_feed.php?token
             Скопировать .ics ссылку
         </button>
     </div>
+
+    <section class="backup-section section-wrap" aria-labelledby="backup-title">
+        <header class="backup-header">
+            <div><span class="eyebrow">Защита данных</span><h2 id="backup-title">Резервные копии и экспорт</h2><p>Выгрузите рабочие данные для анализа или сохраните полную копию перед обновлением сервиса.</p></div>
+            <div class="backup-status <?= $last_backup_at !== '' ? 'is-ready' : '' ?>"><span>Последняя копия базы</span><strong><?= htmlspecialchars($last_backup_label) ?></strong><?php if ($last_backup_file !== ''): ?><small><?= htmlspecialchars($last_backup_file) ?></small><?php endif; ?></div>
+        </header>
+        <div class="backup-actions">
+            <form method="post" action="backup.php"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="clients"><div><strong>Клиенты</strong><span>Контакты, поездки, суммы, теги и заметки</span></div><button type="submit">Скачать CSV</button></form>
+            <form method="post" action="backup.php"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="events"><div><strong>Выезды</strong><span>Расписание, гиды, места, доходы и расходы</span></div><button type="submit">Скачать CSV</button></form>
+            <form method="post" action="backup.php"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="payments"><div><strong>Платежи</strong><span>Оплаты и возвраты с привязкой к туристам</span></div><button type="submit">Скачать CSV</button></form>
+            <form method="post" action="backup.php"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="receipts"><div><strong>Архив чеков</strong><span>ZIP с файлами и реестром расходов</span></div><button type="submit">Скачать ZIP</button></form>
+            <form method="post" action="backup.php" class="database-backup" onsubmit="return confirm('Создать полную резервную копию базы? Сохраните скачанный файл в надёжном месте.')"><?= formTokenInput() ?><input type="hidden" name="backup_action" value="database"><div><strong>Полная копия базы</strong><span>Структура, настройки и все записи в формате SQL</span></div><button type="submit">Создать копию</button></form>
+        </div>
+    </section>
 
     <div class="section-wrap grid-2">
         <div class="card" style="background: #F8FAFC;">
