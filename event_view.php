@@ -129,16 +129,13 @@
                 <?php if ($participants): ?><button type="button" class="btn btn-secondary" data-open-dialog="paymentDialog"><svg><use href="#i-plus"/></svg>Добавить операцию</button><?php endif; ?>
             </header>
             <div class="payment-list">
-                <div class="payment-head" aria-hidden="true"><span>Дата</span><span>Турист</span><span>Операция</span><span>Способ</span><span>Комментарий</span><span>Сумма</span><span></span></div>
+                <div class="payment-head" aria-hidden="true"><span>Турист и дата</span><span>Операция</span><span>Комментарий</span><span>Сумма</span></div>
                 <?php foreach ($payments as $payment): $voided = !empty($payment['voided_at']); ?>
                     <article class="payment-row<?= $voided ? ' is-voided' : '' ?>">
-                        <strong><?= htmlspecialchars(date('d.m.Y', strtotime($payment['paid_at']))) ?></strong>
-                        <span><?= htmlspecialchars($payment['client_name']) ?></span>
-                        <span class="payment-kind <?= $payment['operation']==='refund'?'refund':'income' ?>"><?= $payment['operation']==='refund'?'Возврат':'Оплата' ?></span>
-                        <span><?= htmlspecialchars(paymentMethods()[$payment['method']] ?? $payment['method']) ?></span>
+                        <div class="payment-person"><strong><?= htmlspecialchars($payment['client_name']) ?></strong><span><?= htmlspecialchars(date('d.m.Y', strtotime($payment['paid_at']))) ?></span></div>
+                        <div class="payment-operation"><span class="payment-kind <?= $payment['operation']==='refund'?'refund':'income' ?>"><?= $payment['operation']==='refund'?'Возврат':'Оплата' ?></span><span><?= htmlspecialchars(paymentMethods()[$payment['method']] ?? $payment['method']) ?></span></div>
                         <span class="payment-note"><?= $voided ? 'Аннулировано' . ($payment['voided_by'] ? ': ' . htmlspecialchars($payment['voided_by']) : '') : (!empty($payment['note']) ? htmlspecialchars($payment['note']) : 'Без комментария') ?></span>
-                        <strong class="payment-amount <?= $payment['operation']==='refund'?'refund':'' ?>"><?= $payment['operation']==='refund'?'−':'+' ?><?= eventMoney($payment['amount']) ?></strong>
-                        <div class="row-actions"><?php if (!$voided): ?><form method="post" onsubmit="return confirm('Аннулировать эту операцию? Запись останется в журнале.')"><?= formTokenInput() ?><button class="icon-btn btn-del" name="void_payment" value="<?= (int)$payment['id'] ?>" title="Аннулировать" aria-label="Аннулировать операцию"><svg><use href="#i-close"/></svg></button></form><?php endif; ?></div>
+                        <div class="payment-side"><strong class="payment-amount <?= $payment['operation']==='refund'?'refund':'' ?>"><?= $payment['operation']==='refund'?'−':'+' ?><?= eventMoney($payment['amount']) ?></strong><?php if (!$voided): ?><form method="post" onsubmit="return confirm('Аннулировать эту операцию? Запись останется в журнале.')"><?= formTokenInput() ?><button class="icon-btn btn-del" name="void_payment" value="<?= (int)$payment['id'] ?>" title="Аннулировать" aria-label="Аннулировать операцию"><svg><use href="#i-close"/></svg></button></form><?php endif; ?></div>
                     </article>
                 <?php endforeach; ?>
                 <?php if (!$payments): ?><div class="empty-state">Платежи ещё не добавлены.</div><?php endif; ?>

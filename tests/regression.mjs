@@ -110,6 +110,7 @@ try {
   assert.ok(event.html.includes('Оплата на месте'));
   assert.ok(event.html.includes('Расчёты с туристами'));
   assert.ok(event.html.includes('id="paymentDialog"'));
+  assert.ok(event.html.includes('class="payment-head"'));
   checks++;
   const eventReturn = 'event.php?id=1&return_to=' + encodeURIComponent('index.php?tour_filter=1');
   const clientFromEvent = await page('client.php', {phone:'70000000000',return_to:eventReturn});
@@ -177,6 +178,10 @@ try {
   assert.equal(Number(addedPayment.data.payments[0].amount), 1250.5);
   assert.equal(addedPayment.data.payments[0].method, 'card');
   assert.equal(addedPayment.data.activity_log.at(-1).entity_type, 'payment');
+  checks++;
+  const renderedPayment = await page('event.php', {id:1}, {}, false, {setup:["INSERT INTO payments (event_id,participant_id,operation,amount,method,paid_at,note) VALUES (1,1,'payment',1250.50,'card','2026-09-05','Длинный комментарий')"]});
+  assert.ok(renderedPayment.html.includes('class="payment-person"'));
+  assert.ok(renderedPayment.html.includes('class="payment-side"'));
   checks++;
   const invalidPayment = await page('event.php', {id:1}, {add_payment:1,participant_id:1,operation:'payment',amount:'-10',method:'cash',paid_at:'2026-09-05',note:''});
   assert.equal(invalidPayment.status, 422);
