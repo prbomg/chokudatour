@@ -21,7 +21,7 @@ try {
     }
     if ($action === 'events') {
         $seatSql = participantSeatsSql($pdo, 'p');
-        $rows = $pdo->query("SELECT e.id,e.tour_date,e.time,t.name tour_name,e.guide,e.notes,e.completed_at,COUNT(DISTINCT CASE WHEN p.status!='Отмена' THEN p.id END) bookings,COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seatSql} ELSE 0 END),0) seats,COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN p.price ELSE 0 END),0) income,COALESCE((SELECT SUM(ex.amount) FROM expenses ex WHERE ex.event_id=e.id),0) expenses FROM events e LEFT JOIN tours_catalog t ON t.id=e.tour_id LEFT JOIN participants p ON p.event_id=e.id GROUP BY e.id,e.tour_date,e.time,t.name,e.guide,e.notes,e.completed_at ORDER BY e.tour_date,e.time,e.id")->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $pdo->query("SELECT e.id,e.tour_date,e.time,t.name tour_name,COALESCE(g.name,e.guide) guide,e.notes,e.completed_at,COUNT(DISTINCT CASE WHEN p.status!='Отмена' THEN p.id END) bookings,COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seatSql} ELSE 0 END),0) seats,COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN p.price ELSE 0 END),0) income,COALESCE((SELECT SUM(ex.amount) FROM expenses ex WHERE ex.event_id=e.id),0) expenses FROM events e LEFT JOIN tours_catalog t ON t.id=e.tour_id LEFT JOIN guides g ON g.id=e.guide_id LEFT JOIN participants p ON p.event_id=e.id GROUP BY e.id,e.tour_date,e.time,t.name,g.name,e.guide,e.notes,e.completed_at ORDER BY e.tour_date,e.time,e.id")->fetchAll(PDO::FETCH_ASSOC);
         sendCsvDownload("events_{$stamp}.csv", ['ID','Дата','Время','Маршрут','Гид','Примечание','Проведён','Броней','Мест','Доход','Расходы'], $rows);
     }
     if ($action === 'payments') {

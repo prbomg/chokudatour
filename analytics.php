@@ -108,11 +108,12 @@ unset($tt);
 
 // --- 4. ТОП ГИДОВ ---
 $stmt_top_guides = $pdo->prepare("
-    SELECT e.guide, SUM(p.price) as rev, SUM({$participant_seats_sql}) as pax
+    SELECT e.guide_id, COALESCE(g.name,e.guide) guide, SUM(p.price) as rev, SUM({$participant_seats_sql}) as pax
     FROM participants p 
     JOIN events e ON p.event_id = e.id 
+    LEFT JOIN guides g ON g.id=e.guide_id
     WHERE p.status != 'Отмена' AND e.tour_date BETWEEN ? AND ? 
-    GROUP BY e.guide 
+    GROUP BY e.guide_id,g.name,e.guide
     ORDER BY rev DESC 
     LIMIT 5
 ");

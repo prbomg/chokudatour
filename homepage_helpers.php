@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/participant_seats.php';
+require_once __DIR__ . '/guide_identity.php';
 
 function validTourDate(string $value): bool
 {
@@ -75,8 +76,9 @@ function homeFilterWhere(array $filters, array &$params, bool $past = false): st
     if (isset($filters['tour_filter'])) { $sql .= ' AND e.tour_id = ?'; $params[] = $filters['tour_filter']; }
     if (isset($filters['guide_filter'])) {
         if ($filters['guide_filter'] === 'Не назначен') {
-            $sql .= " AND (e.guide IS NULL OR e.guide = '' OR e.guide LIKE 'Не назначен%')";
-        } else { $sql .= ' AND e.guide = ?'; $params[] = $filters['guide_filter']; }
+            $sql .= " AND e.guide_id IS NULL";
+        } elseif (ctype_digit($filters['guide_filter']) && (int)$filters['guide_filter'] > 0) { $sql .= ' AND e.guide_id = ?'; $params[] = (int)$filters['guide_filter']; }
+        else { $sql .= ' AND 1=0'; }
     }
     return $sql;
 }
@@ -109,7 +111,7 @@ function homeEventDetails(PDO $pdo, array $input): array
     $date = trim((string)($input['tour_date'] ?? ''));
     $time = trim((string)($input['time'] ?? ''));
     $tourId = (int)($input['tour_id'] ?? 0);
-    $guide = trim((string)($input['guide'] ?? ''));
+    $guide = selectedGuide($pdo, $input);
     if (!validTourDate($date)) throw new InvalidArgumentException('Укажите корректную дату экскурсии.');
     $stmt = $pdo->prepare('SELECT name, default_start_time FROM tours_catalog WHERE id = ?');
     $stmt->execute([$tourId]);
@@ -117,8 +119,5 @@ function homeEventDetails(PDO $pdo, array $input): array
     if (!$tour) throw new InvalidArgumentException('Выберите существующий тур.');
     if ($time === '') $time = $tour['default_start_time'] ?: '10:00';
     if (!preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D', $time)) throw new InvalidArgumentException('Укажите время в формате ЧЧ:ММ.');
-    $stmt = $pdo->prepare('SELECT COUNT(*) FROM guides WHERE name = ?');
-    $stmt->execute([$guide]);
-    if ($guide !== 'Не назначен' && !$stmt->fetchColumn()) throw new InvalidArgumentException('Выберите гида из списка.');
-    return ['date' => $date, 'time' => $time, 'tour_id' => $tourId, 'tour_name' => $tour['name'], 'guide' => $guide, 'notes' => trim((string)($input['notes'] ?? ''))];
+    return ['date' => $date, 'time' => $time, 'tour_id' => $tourId, 'tour_name' => $tour['name'], 'guide_id' => $guide['id'], 'guide' => $guide['name'], 'notes' => trim((string)($input['notes'] ?? ''))];
 }

@@ -72,8 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
                 WHERE e.tour_date < CURDATE()";
 
         if ($current_user_role !== 'admin') {
-            $sql .= " AND e.guide = ?";
-            $params[] = $_SESSION['user_name'];
+            $sql .= " AND e.guide_id = ?";
+            $params[] = $current_user_guide_id;
         }
 
         if ($search !== '') {
@@ -204,8 +204,8 @@ $sql = "SELECT p.*, e.tour_date, t.name AS tour_name, e.id AS event_id
         WHERE 1=1";
 
 if ($current_user_role !== 'admin') {
-    $sql .= " AND e.guide = ?";
-    $params[] = $_SESSION['user_name'];
+    $sql .= " AND e.guide_id = ?";
+    $params[] = $current_user_guide_id;
 }
 
 // Фильтр по датам. Если не задан - показываем только актуальные!

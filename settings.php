@@ -44,12 +44,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_staff'])) {
     $password_raw = trim($_POST['password'] ?? '');
     
     if ($name !== '') {
+        $guideId = null;
         // 1. Если это гид, добавляем его в справочник для выпадающих списков
         if ($role === 'guide') {
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM guides WHERE name = ?");
+            $stmt = $pdo->prepare("SELECT g.id FROM guides g LEFT JOIN users u ON u.guide_id=g.id WHERE g.name=? AND u.id IS NULL ORDER BY g.id LIMIT 1");
             $stmt->execute([$name]);
-            if ($stmt->fetchColumn() == 0) {
-                $pdo->prepare("INSERT INTO guides (name, sort_order) VALUES (?, 999)")->execute([$name]);
+            $guideId = (int)$stmt->fetchColumn();
+            if (!$guideId) {
+                $pdo->prepare("INSERT INTO guides (name, sort_order, allowed_tours) VALUES (?, 999, 'all')")->execute([$name]);
+                $guideId = (int)$pdo->lastInsertId();
                 ensureGuideSyncTokens($pdo);
             }
         }
@@ -63,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_staff'])) {
             $stmt->execute([$email]);
             if ($stmt->fetchColumn() == 0) { // Проверка на дубль email
                 $hash = password_hash($password_raw, PASSWORD_DEFAULT);
-                $pdo->prepare("INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)")->execute([$name, $email, $hash, $role]);
+                $pdo->prepare("INSERT INTO users (name, email, password, role, guide_id) VALUES (?, ?, ?, ?, ?)")->execute([$name, $email, $hash, $role, $role === 'guide' ? $guideId : null]);
             }
         } elseif ($role === 'admin') {
             header("Location: settings.php?msg=error_admin_creds"); exit;
@@ -80,7 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_guide_phone'])
     header("Location: settings.php?msg=phone_saved"); exit;
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_guide'])) {
-    $pdo->prepare("DELETE FROM guides WHERE id = ?")->execute([(int)$_POST['del_guide']]);
+    $guideId = (int)$_POST['del_guide'];
+    $refs = $pdo->prepare('SELECT (SELECT COUNT(*) FROM events WHERE guide_id=?)+(SELECT COUNT(*) FROM guide_timeoffs WHERE guide_id=?)+(SELECT COUNT(*) FROM users WHERE guide_id=?)');
+    $refs->execute([$guideId,$guideId,$guideId]);
+    if ($refs->fetchColumn()) { header('Location: settings.php?msg=guide_in_use'); exit; }
+    $pdo->prepare("DELETE FROM guides WHERE id = ?")->execute([$guideId]);
     header("Location: settings.php?msg=guide_deleted"); exit;
 }
 

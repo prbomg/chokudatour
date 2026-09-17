@@ -16,12 +16,13 @@ if (!is_string($token) || !preg_match('/^[a-f0-9]{32,64}$/D', $token)) {
 }
 
 // Ищем туриста по секретному токену
-$sql = "SELECT p.*, e.tour_date, e.guide, 
+$sql = "SELECT p.*, e.tour_date, COALESCE(g.name,e.guide) guide,
                t.name as tour_name, t.public_name, t.duration, t.coordinates, 
                t.food_options, t.program as tour_program, t.main_image, 
                t.included_text, t.not_included_text, t.faq_text, t.id as tour_id
         FROM participants p
         JOIN events e ON p.event_id = e.id
+        LEFT JOIN guides g ON g.id=e.guide_id
         JOIN tours_catalog t ON e.tour_id = t.id
         WHERE p.ticket_token = ? AND (p.status IS NULL OR p.status != 'Отмена') LIMIT 1";
 

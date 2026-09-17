@@ -2,7 +2,7 @@
 (() => {
     const table = document.getElementById('eventsTableBody');
     if (!table) return;
-    const labels = {tour_date:'Дата', time:'Время старта', tour_id:'Маршрут', guide:'Гид', notes:'Примечание', client_name:'Имя туриста', phone:'Телефон', email:'E-mail', seats:'Мест', price:'Сумма брони, ₽', source:'Источник', status:'Статус'};
+    const labels = {tour_date:'Дата', time:'Время старта', tour_id:'Маршрут', guide_id:'Гид', notes:'Примечание', client_name:'Имя туриста', phone:'Телефон', email:'E-mail', seats:'Мест', price:'Сумма брони, ₽', source:'Источник', status:'Статус'};
     function element(tag, className, text) {
         const el = document.createElement(tag); if (className) el.className = className; if (text) el.textContent = text; return el;
     }
@@ -54,7 +54,7 @@
     function repeat(id) {
         const source=document.getElementById('formEditE_'+id); const target=document.getElementById('ajaxAddEventForm');
         target.reset();
-        for (const name of ['tour_id','time','guide']) target.elements.namedItem(name).value=source.elements.namedItem(name).value;
+        for (const name of ['tour_id','time','guide_id']) target.elements.namedItem(name).value=source.elements.namedItem(name).value;
         target.elements.namedItem('time').dataset.manual='1';
         document.getElementById('addEventError').hidden=true;
         document.getElementById('addEventDialog').showModal(); target.elements.namedItem('tour_date').focus();

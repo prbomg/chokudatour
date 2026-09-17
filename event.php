@@ -19,7 +19,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
 
 $events_cols = $pdo->query('SHOW COLUMNS FROM events')->fetchAll(PDO::FETCH_COLUMN);
 $date_col = in_array('tour_date', $events_cols, true) ? 'tour_date' : (in_array('event_date', $events_cols, true) ? 'event_date' : 'date');
-$guide_col = in_array('guide', $events_cols, true) ? 'guide' : 'guide_id';
 $time_col = 'time';
 $part_cols = $pdo->query('SHOW COLUMNS FROM participants')->fetchAll(PDO::FETCH_COLUMN);
 function eventMoney($amount): string
@@ -48,8 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['update_event_details'])) {
             if ($current_user_role !== 'admin') throw new InvalidArgumentException('Доступ запрещён.');
             $details = homeEventDetails($pdo, $_POST);
-            $pdo->prepare("UPDATE events SET {$date_col}=?, {$time_col}=?, tour_id=?, {$guide_col}=?, notes=? WHERE id=?")
-                ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes'], $event_id]);
+            $pdo->prepare("UPDATE events SET {$date_col}=?, {$time_col}=?, tour_id=?, guide_id=?, guide=?, notes=? WHERE id=?")
+                ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide_id'], $details['guide'], $details['notes'], $event_id]);
             recordActivity($pdo, 'update', 'event', $event_id, 'Изменён выезд: ' . $details['tour_name'] . ', ' . $details['date']);
             eventRedirect($event_id, $return_suffix, 'event_updated');
         } elseif (isset($_POST['complete_event']) && $current_user_role === 'admin') {
@@ -119,12 +118,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$guides = $pdo->query('SELECT name FROM guides ORDER BY sort_order ASC, name ASC')->fetchAll(PDO::FETCH_COLUMN);
+$guides = $pdo->query('SELECT id,name FROM guides ORDER BY sort_order ASC, name ASC')->fetchAll(PDO::FETCH_ASSOC);
 $expense_cats = $pdo->query('SELECT name FROM expense_categories ORDER BY sort_order ASC, name ASC')->fetchAll(PDO::FETCH_COLUMN);
 $sources_list = $pdo->query('SELECT name FROM booking_sources ORDER BY sort_order ASC, name ASC')->fetchAll(PDO::FETCH_COLUMN);
 $tours_list = $pdo->query('SELECT id, name, public_name FROM tours_catalog WHERE COALESCE(is_archived,0)=0 ORDER BY sort_order ASC, name ASC')->fetchAll(PDO::FETCH_ASSOC);
 
-$stmt = $pdo->prepare("SELECT e.*, t.name AS tour_name, t.public_name, t.duration, t.coordinates FROM events e JOIN tours_catalog t ON e.tour_id=t.id WHERE e.id=?");
+$stmt = $pdo->prepare("SELECT e.*, COALESCE(g.name,e.guide) AS guide_name, t.name AS tour_name, t.public_name, t.duration, t.coordinates FROM events e JOIN tours_catalog t ON e.tour_id=t.id LEFT JOIN guides g ON g.id=e.guide_id WHERE e.id=?");
 $stmt->execute([$event_id]);
 $event = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$event) { http_response_code(404); exit('Выезд не найден.'); }

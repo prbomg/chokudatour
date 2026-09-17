@@ -42,7 +42,7 @@
 
             <div class="event-facts">
                 <div class="fact"><span>Дата и время</span><strong><?= $date_formatted ?>, <?= htmlspecialchars($event[$time_col] ?: 'время не указано') ?></strong></div>
-                <div class="fact"><span>Гид</span><strong><?= htmlspecialchars($event[$guide_col] ?: 'Не назначен') ?></strong></div>
+                <div class="fact"><span>Гид</span><strong><?= htmlspecialchars($event['guide_name'] ?: 'Не назначен') ?></strong></div>
                 <div class="fact"><span>Статус выезда</span><strong class="event-state <?= !empty($event['completed_at']) ? 'completed' : (($event[$date_col] < date('Y-m-d')) ? 'pending' : 'planned') ?>"><?= !empty($event['completed_at']) ? 'Проведён' : (($event[$date_col] < date('Y-m-d')) ? 'Ожидает подтверждения' : 'Запланирован') ?></strong></div>
                 <?php if (!empty($event['duration'])): ?><div class="fact"><span>Длительность</span><strong><?= htmlspecialchars($event['duration']) ?></strong></div><?php endif; ?>
                 <?php if (!empty($event['coordinates'])): ?><div class="fact fact-wide"><span>Место встречи</span><a class="meeting-link" href="https://www.google.com/maps/search/?api=1&amp;query=<?= rawurlencode($event['coordinates']) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($event['coordinates']) ?> ↗</a></div><?php endif; ?>
@@ -175,7 +175,7 @@
             <label class="field field-wide">Маршрут<select name="tour_id" required><?php foreach ($tours_list as $tour): ?><option value="<?= (int)$tour['id'] ?>" <?= (int)$tour['id'] === (int)$event['tour_id'] ? 'selected' : '' ?>><?= htmlspecialchars($tour['public_name'] ?: $tour['name']) ?></option><?php endforeach; ?></select></label>
             <label class="field">Дата<input type="date" name="tour_date" value="<?= htmlspecialchars($event[$date_col], ENT_QUOTES) ?>" required></label>
             <label class="field">Время<input type="time" name="time" value="<?= htmlspecialchars($event[$time_col] ?? '', ENT_QUOTES) ?>"></label>
-            <label class="field field-wide">Гид<select name="guide"><option value="Не назначен">Не назначен</option><?php foreach ($guides as $guide): ?><option value="<?= htmlspecialchars($guide, ENT_QUOTES) ?>" <?= ($event[$guide_col] ?? '') === $guide ? 'selected' : '' ?>><?= htmlspecialchars($guide) ?></option><?php endforeach; ?></select></label>
+            <label class="field field-wide">Гид<select name="guide_id"><option value="">Не назначен</option><?php foreach ($guides as $guide): ?><option value="<?= (int)$guide['id'] ?>" <?= (int)($event['guide_id'] ?? 0) === (int)$guide['id'] ? 'selected' : '' ?>><?= htmlspecialchars($guide['name']) ?></option><?php endforeach; ?></select></label>
             <label class="field field-wide">Примечание<textarea name="notes" rows="4" placeholder="Пожелания и особенности поездки"><?= htmlspecialchars($event['notes'] ?? '') ?></textarea></label>
         </div>
         <footer><button type="button" class="btn btn-quiet" data-close-dialog>Отмена</button><button class="btn btn-primary" type="submit">Сохранить изменения</button></footer>

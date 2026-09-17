@@ -7,6 +7,7 @@ require_once __DIR__ . '/activity_log.php';
 require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/event_schedule_validation.php';
+require_once __DIR__ . '/guide_identity.php';
 $participant_seats_sql = participantSeatsSql($pdo);
 $schedule_event_warnings = [];
 
@@ -28,7 +29,10 @@ function scheduleDate(string $value): ?DateTime
 // --- 1. ДОБАВЛЕНИЕ ОДНОГО ТУРА НА ДАТУ ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_single_event'])) {
     $tour_id = (int)($_POST['tour_id'] ?? 0);
-    $guide = trim($_POST['guide'] ?? 'Не назначен');
+    try { $selectedGuide = selectedGuide($pdo, $_POST); $guideValid = true; }
+    catch (InvalidArgumentException $e) { $selectedGuide = ['id'=>null,'name'=>'Не назначен']; $guideValid = false; }
+    $guide = $selectedGuide['name'];
+    $guide_id = $selectedGuide['id'];
     $tour_date = $_POST['tour_date'] ?? '';
     $time = trim($_POST['time'] ?? '');
 
@@ -36,18 +40,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_single_event'])) 
     $tour_stmt = $pdo->prepare('SELECT default_start_time FROM tours_catalog WHERE id = ? AND COALESCE(is_archived,0)=0');
     $tour_stmt->execute([$tour_id]);
     $default_time = $tour_stmt->fetchColumn();
-    $guide_stmt = $pdo->prepare('SELECT COUNT(*) FROM guides WHERE name = ?');
-    $guide_stmt->execute([$guide]);
-    $guide_valid = $guide === 'Не назначен' || (bool)$guide_stmt->fetchColumn();
-    if ($tour_id > 0 && $date && $default_time !== false && $guide_valid) {
+    if ($tour_id > 0 && $date && $default_time !== false && $guideValid) {
         if (empty($time)) {
             $time = $default_time ?: '10:00';
         }
         if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/D', $time)) $time = '10:00';
 
-        $schedule_event_warnings = eventScheduleWarnings($pdo, $tour_date, $time, $tour_id, $guide);
+        $schedule_event_warnings = eventScheduleWarnings($pdo, $tour_date, $time, $tour_id, $guide_id, $guide);
         if (!$schedule_event_warnings || eventScheduleOverrideRequested($_POST)) {
-            $pdo->prepare("INSERT INTO events (tour_id, tour_date, time, guide) VALUES (?, ?, ?, ?)")->execute([$tour_id, $tour_date, $time, $guide]);
+            $pdo->prepare("INSERT INTO events (tour_id, tour_date, time, guide_id, guide) VALUES (?, ?, ?, ?, ?)")->execute([$tour_id, $tour_date, $time, $guide_id, $guide]);
             recordActivity($pdo, 'create', 'event', (int)$pdo->lastInsertId(), 'Создан выезд из расписания: ' . $tour_date . ($schedule_event_warnings ? ' (конфликты подтверждены)' : ''));
             header("Location: schedule.php?ym={$ym}&msg=event_added"); exit;
         }
@@ -103,21 +104,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_rule_date']) &
 
 // --- 4. ОТГУЛЫ ГИДОВ (С УЧЕТОМ ДИАПАЗОНОВ) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_timeoff'])) {
-    $g_name = trim($_POST['guide_name'] ?? '');
+    $g_id = (int)($_POST['guide_id'] ?? 0);
     $d_start = $_POST['timeoff_date_start'] ?? '';
     $d_end = $_POST['timeoff_date_end'] ?: $d_start;
     $reason = trim($_POST['timeoff_reason'] ?? '');
 
-    $guide_stmt = $pdo->prepare('SELECT COUNT(*) FROM guides WHERE name = ?');
-    $guide_stmt->execute([$g_name]);
-    if ($g_name && $guide_stmt->fetchColumn() && ($start = scheduleDate($d_start))) {
+    $guide_stmt = $pdo->prepare('SELECT name FROM guides WHERE id = ?');
+    $guide_stmt->execute([$g_id]);
+    $g_name = (string)$guide_stmt->fetchColumn();
+    if ($g_id && $g_name !== '' && ($start = scheduleDate($d_start))) {
         $end = scheduleDate($d_end) ?: clone $start;
         if ($end < $start) $end = clone $start;
 
         while ($start <= $end) {
-            $exists = $pdo->prepare('SELECT COUNT(*) FROM guide_timeoffs WHERE guide_name=? AND date_off=?');
-            $exists->execute([$g_name, $start->format('Y-m-d')]);
-            if (!$exists->fetchColumn()) $pdo->prepare("INSERT INTO guide_timeoffs (guide_name, date_off, reason) VALUES (?, ?, ?)")->execute([$g_name, $start->format('Y-m-d'), $reason]);
+            $exists = $pdo->prepare('SELECT COUNT(*) FROM guide_timeoffs WHERE guide_id=? AND date_off=?');
+            $exists->execute([$g_id, $start->format('Y-m-d')]);
+            if (!$exists->fetchColumn()) $pdo->prepare("INSERT INTO guide_timeoffs (guide_id, guide_name, date_off, reason) VALUES (?, ?, ?, ?)")->execute([$g_id, $g_name, $start->format('Y-m-d'), $reason]);
             $start->modify('+1 day');
         }
     }
@@ -167,7 +169,7 @@ foreach ($rules_raw as $r) {
 }
 
 // Отгулы на текущий месяц
-$stmt_to = $pdo->prepare("SELECT * FROM guide_timeoffs WHERE date_off BETWEEN ? AND ?");
+$stmt_to = $pdo->prepare("SELECT gt.*,COALESCE(g.name,gt.guide_name) guide_name FROM guide_timeoffs gt LEFT JOIN guides g ON g.id=gt.guide_id WHERE date_off BETWEEN ? AND ?");
 $stmt_to->execute([$start_date_sql, $end_date_sql]);
 $timeoffs_raw = $stmt_to->fetchAll(PDO::FETCH_ASSOC);
 $timeoffs_map = [];
@@ -176,7 +178,7 @@ foreach ($timeoffs_raw as $to) {
 }
 
 // Туры на текущий месяц
-$stmt_ev = $pdo->prepare("SELECT e.*, t.name AS tour_name, COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count FROM events e JOIN tours_catalog t ON e.tour_id = t.id WHERE e.tour_date BETWEEN ? AND ? ORDER BY e.time ASC, t.name ASC");
+$stmt_ev = $pdo->prepare("SELECT e.*,COALESCE(g.name,e.guide) guide,t.name AS tour_name,COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id=e.id AND status!='Отмена'),0) seats_count FROM events e JOIN tours_catalog t ON e.tour_id=t.id LEFT JOIN guides g ON g.id=e.guide_id WHERE e.tour_date BETWEEN ? AND ? ORDER BY e.time ASC,t.name ASC");
 $stmt_ev->execute([$start_date_sql, $end_date_sql]);
 $events_raw = $stmt_ev->fetchAll(PDO::FETCH_ASSOC);
 $events_map = [];
@@ -187,7 +189,7 @@ foreach ($events_raw as $ev) {
 
 // Будущие отгулы и правила для списков снизу
 $future_rules = $pdo->query("SELECT * FROM blocked_dates WHERE block_date >= CURDATE() ORDER BY block_date ASC")->fetchAll(PDO::FETCH_ASSOC);
-$timeoffs_future = $pdo->query("SELECT * FROM guide_timeoffs WHERE date_off >= CURDATE() ORDER BY date_off ASC")->fetchAll(PDO::FETCH_ASSOC);
+$timeoffs_future = $pdo->query("SELECT gt.*,COALESCE(g.name,gt.guide_name) guide_name FROM guide_timeoffs gt LEFT JOIN guides g ON g.id=gt.guide_id WHERE date_off>=CURDATE() ORDER BY date_off ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 function getGuideColor($guideName) {
     if (empty($guideName) || $guideName === 'Не назначен') return "hsl(215, 16%, 80%)";
@@ -560,9 +562,9 @@ function getGuideColor($guideName) {
                 <div style="display:flex; gap:15px;">
                     <div class="form-group" style="flex:2;">
                         <label>Гид</label>
-                        <select name="guide" class="t-input">
-                            <option value="Не назначен">Оставить без гида</option>
-                            <?php foreach($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>" <?= ($_POST['guide'] ?? '')===$g['name']?'selected':'' ?>><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?>
+                        <select name="guide_id" class="t-input">
+                            <option value="">Оставить без гида</option>
+                            <?php foreach($guides as $g): ?><option value="<?= (int)$g['id'] ?>" <?= (int)($_POST['guide_id'] ?? 0)===(int)$g['id']?'selected':'' ?>><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?>
                         </select>
                     </div>
                     <div class="form-group" style="flex:1;">
@@ -629,9 +631,9 @@ function getGuideColor($guideName) {
                 
                 <div class="form-group">
                     <label>Выберите гида *</label>
-                    <select name="guide_name" class="t-input" required>
+                    <select name="guide_id" class="t-input" required>
                         <option value="" disabled selected>-- Список гидов --</option>
-                        <?php foreach($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?>
+                        <?php foreach($guides as $g): ?><option value="<?= (int)$g['id'] ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?>
                     </select>
                 </div>
 

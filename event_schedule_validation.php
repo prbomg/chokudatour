@@ -4,7 +4,7 @@
  * Returns non-blocking warnings for a manually assigned departure.
  * The caller decides whether an administrator explicitly overrides them.
  */
-function eventScheduleWarnings(PDO $pdo, string $date, string $time, int $tourId, string $guide, ?int $excludeEventId = null): array
+function eventScheduleWarnings(PDO $pdo, string $date, string $time, int $tourId, ?int $guideId, string $guide, ?int $excludeEventId = null): array
 {
     $warnings = [];
 
@@ -27,17 +27,17 @@ function eventScheduleWarnings(PDO $pdo, string $date, string $time, int $tourId
         $warnings[] = $message;
     }
 
-    if ($guide === '' || $guide === 'Не назначен') return $warnings;
+    if (!$guideId) return $warnings;
 
-    $guideStmt = $pdo->prepare('SELECT allowed_tours FROM guides WHERE name=?');
-    $guideStmt->execute([$guide]);
+    $guideStmt = $pdo->prepare('SELECT allowed_tours FROM guides WHERE id=?');
+    $guideStmt->execute([$guideId]);
     $allowedTours = $guideStmt->fetchColumn();
     if ($allowedTours !== false && $allowedTours !== 'all' && !in_array((string)$tourId, array_filter(explode(',', (string)$allowedTours)), true)) {
         $warnings[] = 'Гид «' . $guide . '» не назначен на этот маршрут.';
     }
 
-    $offStmt = $pdo->prepare('SELECT reason FROM guide_timeoffs WHERE guide_name=? AND date_off=? ORDER BY id DESC LIMIT 1');
-    $offStmt->execute([$guide, $date]);
+    $offStmt = $pdo->prepare('SELECT reason FROM guide_timeoffs WHERE guide_id=? AND date_off=? ORDER BY id DESC LIMIT 1');
+    $offStmt->execute([$guideId, $date]);
     $timeoffReason = $offStmt->fetchColumn();
     if ($timeoffReason !== false) {
         $message = 'У гида «' . $guide . '» в этот день отгул.';
@@ -45,8 +45,8 @@ function eventScheduleWarnings(PDO $pdo, string $date, string $time, int $tourId
         $warnings[] = $message;
     }
 
-    $conflictSql = "SELECT e.id, t.name FROM events e JOIN tours_catalog t ON t.id=e.tour_id WHERE e.guide=? AND e.tour_date=? AND e.time=?";
-    $params = [$guide, $date, $time];
+    $conflictSql = "SELECT e.id, t.name FROM events e JOIN tours_catalog t ON t.id=e.tour_id WHERE e.guide_id=? AND e.tour_date=? AND e.time=?";
+    $params = [$guideId, $date, $time];
     if ($excludeEventId) { $conflictSql .= ' AND e.id<>?'; $params[] = $excludeEventId; }
     $conflictSql .= ' ORDER BY e.id LIMIT 1';
     $conflictStmt = $pdo->prepare($conflictSql);
@@ -62,4 +62,3 @@ function eventScheduleOverrideRequested(array $input): bool
 {
     return isset($input['schedule_override']) && hash_equals('1', (string)$input['schedule_override']);
 }
-

@@ -53,19 +53,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_event']) || i
         $details = homeEventDetails($pdo, $_POST);
         if (isset($_POST['update_event'])) {
             requireEventAccess($pdo, (int)$_POST['event_id'], $current_user_role, $current_user_name);
-            $pdo->prepare("UPDATE events SET tour_date=?, time=?, tour_id=?, guide=?, notes=? WHERE id=?")
-                ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes'], (int)$_POST['event_id']]);
+            $pdo->prepare("UPDATE events SET tour_date=?, time=?, tour_id=?, guide_id=?, guide=?, notes=? WHERE id=?")
+                ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide_id'], $details['guide'], $details['notes'], (int)$_POST['event_id']]);
             recordActivity($pdo, 'update', 'event', (int)$_POST['event_id'], 'Изменён выезд: ' . $details['tour_name'] . ', ' . $details['date']);
             header('Location: ' . $return_url); exit;
         }
-        $scheduleWarnings = eventScheduleWarnings($pdo, $details['date'], $details['time'], $details['tour_id'], $details['guide']);
+        $scheduleWarnings = eventScheduleWarnings($pdo, $details['date'], $details['time'], $details['tour_id'], $details['guide_id'], $details['guide']);
         if ($scheduleWarnings && !eventScheduleOverrideRequested($_POST)) {
             http_response_code(409);
             echo json_encode(['status' => 'warning', 'message' => 'Обнаружены конфликты расписания.', 'warnings' => $scheduleWarnings]);
             exit;
         }
-        $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide, notes) VALUES (?, ?, ?, ?, ?)")
-            ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide'], $details['notes']]);
+        $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide_id, guide, notes) VALUES (?, ?, ?, ?, ?, ?)")
+            ->execute([$details['date'], $details['time'], $details['tour_id'], $details['guide_id'], $details['guide'], $details['notes']]);
         recordActivity($pdo, 'create', 'event', (int)$pdo->lastInsertId(), 'Создан выезд: ' . $details['tour_name'] . ', ' . $details['date'] . ($scheduleWarnings ? ' (конфликты подтверждены)' : ''));
         $notification_failed = false;
         try {
@@ -99,16 +99,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
 
         if ($current_user_role === 'admin') {
             // Единый подсчет мест для всех экранов
-            $sql = "SELECT e.*, t.name AS tour_name,
+            $sql = "SELECT e.*, COALESCE(g.name,e.guide) AS guide, t.name AS tour_name,
                     COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
                     COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price
-                    FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
+                    FROM events e JOIN tours_catalog t ON e.tour_id = t.id LEFT JOIN guides g ON g.id=e.guide_id
                     WHERE {$where} ORDER BY e.tour_date DESC, e.time DESC, e.id DESC LIMIT {$limit} OFFSET $offset";
         } else {
-            $sql = "SELECT e.*, t.name AS tour_name, t.duration, t.coordinates 
-                    FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
-                    WHERE {$where} AND e.guide = ? ORDER BY e.tour_date DESC, e.time DESC, e.id DESC LIMIT $limit OFFSET $offset";
-            $params[] = $_SESSION['user_name'];
+            $sql = "SELECT e.*, COALESCE(g.name,e.guide) AS guide, t.name AS tour_name, t.duration, t.coordinates
+                    FROM events e JOIN tours_catalog t ON e.tour_id = t.id LEFT JOIN guides g ON g.id=e.guide_id
+                    WHERE {$where} AND e.guide_id = ? ORDER BY e.tour_date DESC, e.time DESC, e.id DESC LIMIT $limit OFFSET $offset";
+            $params[] = $current_user_guide_id;
         }
 
         $stmt = $pdo->prepare($sql);
@@ -122,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
 
         if ($current_user_role === 'admin') {
             $tours_list = $pdo->query("SELECT id, name FROM tours_catalog ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
-            $guides_list = $pdo->query("SELECT name FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_COLUMN);
+            $guides_list = $pdo->query("SELECT id,name FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
         }
 
         foreach ($past_events as $ev) {
@@ -170,8 +170,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 $html .= "<td data-label='Тур'><select form='formEditE_{$ev['id']}' name='tour_id' class='t-input' required>";
                 foreach ($tours_list as $t) { $sel = $t['id'] == $ev['tour_id'] ? 'selected' : ''; $html .= "<option value='{$t['id']}' {$sel}>".htmlspecialchars($t['name'])."</option>"; }
                 $html .= "</select></td>";
-                $html .= "<td data-label='Гид'><select form='formEditE_{$ev['id']}' name='guide' class='t-input' required><option value='Не назначен' ".($ev['guide'] === 'Не назначен' ? 'selected' : '').">Не назначен</option>";
-                foreach ($guides_list as $g) { $sel = $ev['guide'] === $g ? 'selected' : ''; $html .= "<option value='".htmlspecialchars($g)."' {$sel}>".htmlspecialchars($g)."</option>"; }
+                $html .= "<td data-label='Гид'><select form='formEditE_{$ev['id']}' name='guide_id' class='t-input'><option value='' ".(empty($ev['guide_id']) ? 'selected' : '').">Не назначен</option>";
+                foreach ($guides_list as $g) { $sel = (int)$ev['guide_id'] === (int)$g['id'] ? 'selected' : ''; $html .= "<option value='".(int)$g['id']."' {$sel}>".htmlspecialchars($g['name'])."</option>"; }
                 $html .= "</select></td>";
                 $html .= "<td data-label='Мест'><span class='seats-badge'>{$ev['seats_count']}</span></td>";
                 $html .= "<td data-label='Доход' class='col-price' style='color: #059669;'>{$income}</td>";
@@ -249,12 +249,12 @@ if ($current_user_role === 'admin') {
     $guides = $pdo->query("SELECT * FROM guides ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
     // Единый подсчет мест для всех экранов
-    $sql = "SELECT e.*, t.name AS tour_name,
+    $sql = "SELECT e.*, COALESCE(g.name,e.guide) AS guide, t.name AS tour_name,
             COALESCE((SELECT SUM({$participant_seats_sql}) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as seats_count,
             COALESCE((SELECT SUM(price) FROM participants WHERE event_id = e.id AND status != 'Отмена'), 0) as total_price,
             COALESCE((SELECT SUM(CASE WHEN operation='refund' THEN -amount ELSE amount END) FROM payments WHERE event_id=e.id AND voided_at IS NULL), 0) as total_prepayments,
             COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0) as total_expenses
-            FROM events e JOIN tours_catalog t ON e.tour_id = t.id WHERE 1=1";
+            FROM events e JOIN tours_catalog t ON e.tour_id = t.id LEFT JOIN guides g ON g.id=e.guide_id WHERE 1=1";
     $params = [];
 
     $sql .= ' AND ' . ($filter_error ? '1=0' : homeFilterWhere($home_filters, $params));
@@ -273,11 +273,10 @@ if ($current_user_role === 'admin') {
     }
     $dash_profit = $dash_income - $dash_expenses;
 } else {
-    $guide_name = $_SESSION['user_name'];
-    $stmt_g = $pdo->prepare("SELECT e.*, t.name AS tour_name, t.duration, t.coordinates 
-                             FROM events e JOIN tours_catalog t ON e.tour_id = t.id 
-                             WHERE e.guide = ? AND (e.tour_date >= CURDATE() OR e.completed_at IS NULL) ORDER BY e.tour_date ASC, e.time ASC");
-    $stmt_g->execute([$guide_name]);
+    $stmt_g = $pdo->prepare("SELECT e.*, COALESCE(g.name,e.guide) AS guide, t.name AS tour_name, t.duration, t.coordinates
+                             FROM events e JOIN tours_catalog t ON e.tour_id = t.id LEFT JOIN guides g ON g.id=e.guide_id
+                             WHERE e.guide_id = ? AND (e.tour_date >= CURDATE() OR e.completed_at IS NULL) ORDER BY e.tour_date ASC, e.time ASC");
+    $stmt_g->execute([$current_user_guide_id]);
     $guide_events = $stmt_g->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -338,7 +337,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         <div class="filter-group"><label>Дата от</label><input type="date" name="date_from" value="<?= htmlspecialchars($home_filters['date_from'] ?? '') ?>"></div>
         <div class="filter-group"><label>Дата до</label><input type="date" name="date_to" value="<?= htmlspecialchars($home_filters['date_to'] ?? '') ?>"></div>
         <div class="filter-group"><label>Тур</label><select name="tour_filter"><option value="">Все туры</option><?php foreach ($tours as $t): ?><option value="<?= $t['id'] ?>" <?= (($home_filters['tour_filter'] ?? '') == $t['id']) ? 'selected' : '' ?>><?= htmlspecialchars($t['name']) ?></option><?php endforeach; ?></select></div>
-        <div class="filter-group"><label>Гид</label><select name="guide_filter"><option value="">Все гиды</option><option value="Не назначен" <?= ($home_filters['guide_filter'] ?? '') === 'Не назначен' ? 'selected' : '' ?>>Не назначен</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>" <?= (($home_filters['guide_filter'] ?? '') === $g['name']) ? 'selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></div>
+        <div class="filter-group"><label>Гид</label><select name="guide_filter"><option value="">Все гиды</option><option value="Не назначен" <?= ($home_filters['guide_filter'] ?? '') === 'Не назначен' ? 'selected' : '' ?>>Не назначен</option><?php foreach ($guides as $g): ?><option value="<?= (int)$g['id'] ?>" <?= ((int)($home_filters['guide_filter'] ?? 0) === (int)$g['id']) ? 'selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></div>
         <div class="filter-group"><label>Сортировка</label><select name="sort"><?php foreach (['tour_date'=>'Дата','tour_name'=>'Название тура','guide'=>'Гид'] as $key=>$label): ?><option value="<?= $key ?>" <?= $sort_col === $key ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select></div>
         <div class="filter-group"><label>Порядок</label><select name="dir"><option value="asc" <?= $sort_dir === 'ASC' ? 'selected' : '' ?>>По возрастанию</option><option value="desc" <?= $sort_dir === 'DESC' ? 'selected' : '' ?>>По убыванию</option></select></div>
         <button type="submit" class="btn-filter">Применить</button>
@@ -358,7 +357,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
             <label for="add_date">Дата *<input form="ajaxAddEventForm" id="add_date" type="date" name="tour_date" class="t-input" required></label>
             <label for="add_time">Время старта<input form="ajaxAddEventForm" type="time" name="time" id="add_time" class="t-input" oninput="this.dataset.manual='1'"></label>
             <p class="add-dialog-hint add-dialog-wide">Время подставится из маршрута. Его можно изменить вручную.</p>
-            <label class="add-dialog-wide" for="add_guide">Гид<select form="ajaxAddEventForm" name="guide" id="add_guide" class="t-input" required><option value="Не назначен">Не назначен</option><?php foreach ($guides as $g): ?><option value="<?= htmlspecialchars($g['name']) ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></label>
+            <label class="add-dialog-wide" for="add_guide">Гид<select form="ajaxAddEventForm" name="guide_id" id="add_guide" class="t-input"><option value="">Не назначен</option><?php foreach ($guides as $g): ?><option value="<?= (int)$g['id'] ?>"><?= htmlspecialchars($g['name']) ?></option><?php endforeach; ?></select></label>
             <label class="add-dialog-wide" for="add_notes">Примечание<textarea form="ajaxAddEventForm" id="add_notes" name="notes" class="t-input" rows="3" placeholder="Пожелания и особенности поездки"></textarea></label>
         </div>
         <p id="addEventError" role="alert" hidden></p>
@@ -457,10 +456,10 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                         </select>
                     </td>
                     <td data-label="Гид">
-                        <select form="formEditE_<?= $ev['id'] ?>" name="guide" class="t-input" required>
-                            <option value="Не назначен" <?= $ev['guide'] === 'Не назначен' ? 'selected' : '' ?>>Не назначен</option>
+                        <select form="formEditE_<?= $ev['id'] ?>" name="guide_id" class="t-input">
+                            <option value="" <?= empty($ev['guide_id']) ? 'selected' : '' ?>>Не назначен</option>
                             <?php foreach ($guides as $g): ?>
-                                <option value="<?= htmlspecialchars($g['name']) ?>" <?= $ev['guide'] === $g['name'] ? 'selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option>
+                                <option value="<?= (int)$g['id'] ?>" <?= (int)$ev['guide_id'] === (int)$g['id'] ? 'selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </td>

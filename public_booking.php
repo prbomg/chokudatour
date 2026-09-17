@@ -21,7 +21,7 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
     try {
         // Serialize public bookings through the small guide roster. Two requests
         // for different routes cannot simultaneously assign the same free guide.
-        $guides = $pdo->query('SELECT name, allowed_tours FROM guides ORDER BY name FOR UPDATE')->fetchAll(PDO::FETCH_ASSOC);
+        $guides = $pdo->query('SELECT id,name,allowed_tours FROM guides ORDER BY name FOR UPDATE')->fetchAll(PDO::FETCH_ASSOC);
         $duplicate = $pdo->prepare('SELECT participant_id FROM booking_requests WHERE token = ?');
         $duplicate->execute([$token]);
         if ($duplicate->fetchColumn()) { $pdo->commit(); return ['duplicate' => true]; }
@@ -46,27 +46,27 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
         if (!$available) throw new InvalidArgumentException('Эта дата закрыта для выбранного тура.');
 
         $seatSql = participantSeatsSql($pdo, 'p');
-        $eventsStmt = $pdo->prepare("SELECT e.id,e.guide,e.tour_id,COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seatSql} ELSE 0 END),0) existing_seats FROM events e LEFT JOIN participants p ON p.event_id=e.id WHERE e.tour_date=? GROUP BY e.id,e.guide,e.tour_id ORDER BY e.id");
+        $eventsStmt = $pdo->prepare("SELECT e.id,e.guide_id,e.guide,e.tour_id,COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seatSql} ELSE 0 END),0) existing_seats FROM events e LEFT JOIN participants p ON p.event_id=e.id WHERE e.tour_date=? GROUP BY e.id,e.guide_id,e.guide,e.tour_id ORDER BY e.id");
         $eventsStmt->execute([$date]);
         $events = $eventsStmt->fetchAll(PDO::FETCH_ASSOC);
-        $offStmt = $pdo->prepare('SELECT guide_name FROM guide_timeoffs WHERE date_off = ?');
+        $offStmt = $pdo->prepare('SELECT guide_id FROM guide_timeoffs WHERE date_off = ?');
         $offStmt->execute([$date]);
         $off = $offStmt->fetchAll(PDO::FETCH_COLUMN);
         $eligible = [];
         foreach ($guides as $g) {
-            if (($g['allowed_tours'] === 'all' || in_array((string)$tourId, explode(',', $g['allowed_tours']), true)) && !in_array($g['name'], $off, true)) $eligible[] = $g['name'];
+            if (($g['allowed_tours'] === 'all' || in_array((string)$tourId, explode(',', $g['allowed_tours']), true)) && !in_array((int)$g['id'], array_map('intval',$off), true)) $eligible[(int)$g['id']] = $g['name'];
         }
-        $eventId = null; $assigned = null;
+        $eventId = null; $assigned = null; $assignedId = null;
         $sameTour = array_values(array_filter($events, fn($e) => (int)$e['tour_id'] === $tourId));
         if ($group && $sameTour) {
             foreach ($sameTour as $event) {
                 if ($maxGroupSize > 0 && (int)$event['existing_seats'] + $seats > $maxGroupSize) continue;
-                $busy = array_filter($events, fn($other) => $other['guide'] === $event['guide'] && $other['id'] !== $event['id']);
-                if (in_array($event['guide'], $eligible, true) && !$busy) { $eventId = $event['id']; $assigned = $event['guide']; break; }
+                $busy = array_filter($events, fn($other) => (int)$other['guide_id'] === (int)$event['guide_id'] && $other['id'] !== $event['id']);
+                if (isset($eligible[(int)$event['guide_id']]) && !$busy) { $eventId = $event['id']; $assignedId=(int)$event['guide_id']; $assigned = $eligible[$assignedId]; break; }
             }
         } else {
-            $busy = array_column($events, 'guide');
-            foreach ($eligible as $guide) if (!in_array($guide, $busy, true)) { $assigned = $guide; break; }
+            $busy = array_map('intval',array_column($events, 'guide_id'));
+            foreach ($eligible as $id=>$guide) if (!in_array((int)$id, $busy, true)) { $assignedId=(int)$id; $assigned = $guide; break; }
         }
         if ($assigned === null && $group && $sameTour && $maxGroupSize > 0) throw new InvalidArgumentException('В выбранной группе недостаточно свободных мест.');
         if ($assigned === null) throw new InvalidArgumentException('На эту дату нет доступного гида. Выберите другую дату.');
@@ -75,7 +75,7 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
         if ($price < 0 || $price > 2147483647) throw new InvalidArgumentException('Проверьте количество человек и стоимость экскурсии.');
         if ($eventId === null) {
             $time = $tour['default_start_time'] ?: '10:00';
-            $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide, notes) VALUES (?, ?, ?, ?, 'Заявка с сайта')")->execute([$date, $time, $tourId, $assigned]);
+            $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide_id, guide, notes) VALUES (?, ?, ?, ?, ?, 'Заявка с сайта')")->execute([$date, $time, $tourId, $assignedId, $assigned]);
             $eventId = (int)$pdo->lastInsertId();
             recordActivity($pdo, 'create', 'event', $eventId, 'Создан выезд по заявке с сайта: ' . $date);
         }

@@ -39,10 +39,10 @@ try {
       'tables'=>(int)$database->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('events','participants','payments','activity_log')")->fetchColumn(),
     ], JSON_UNESCAPED_UNICODE);`});
   const migrationResult = JSON.parse(migrationRun.text);
-  assert.deepEqual(migrationResult.first, [1,2,3,4,5]);
+  assert.deepEqual(migrationResult.first, [1,2,3,4,5,6]);
   assert.deepEqual(migrationResult.second, []);
-  assert.equal(migrationResult.version, 5);
-  assert.equal(migrationResult.recorded, 5);
+  assert.equal(migrationResult.version, 6);
+  assert.equal(migrationResult.recorded, 6);
   assert.equal(migrationResult.tables, 4);
   assert.ok(migrationResult.client_tags.includes('VIP'));
   checks++;
@@ -68,6 +68,7 @@ try {
       $GLOBALS['legacy_schema'] = $input['legacy'];
       $GLOBALS['fixture_role'] = $input['options']['role'] ?? 'admin';
       $GLOBALS['fixture_name'] = $input['options']['name'] ?? 'Тестовый администратор';
+      $GLOBALS['fixture_guide_id'] = $input['options']['guideId'] ?? null;
       $GLOBALS['notification_error'] = $input['options']['notificationError'] ?? false;
       require_once 'fixture.php';
       require_once 'migrations.php';
@@ -114,8 +115,8 @@ try {
     [{date_from:'2026-09-01',date_to:'2026-09-30'}, [3,6,6000,750.75,5249.25]],
     [{date_from:'2026-09-05',date_to:'2026-09-05'}, [1,3,4000,300.75,3699.25]],
     [{tour_filter:1}, [4,9,11500,9850.75,1649.25]],
-    [{guide_filter:'Гид Б'}, [2,5,3500,900,2600]],
-    [{date_from:'2026-09-01',date_to:'2026-09-30',tour_filter:1,guide_filter:'Гид А'}, [2,3,4000,350.75,3649.25]],
+    [{guide_filter:'2'}, [2,5,3500,900,2600]],
+    [{date_from:'2026-09-01',date_to:'2026-09-30',tour_filter:1,guide_filter:'1'}, [2,3,4000,350.75,3649.25]],
     [{date_from:'2026-09-07',date_to:'2026-09-07'}, [1,0,0,50,-50]],
     [{tour_filter:999}, [0,0,0,0,0]],
     [{date_from:'2026-08-01',date_to:'2026-08-01'}, [1,4,6000,9000,-3000]],
@@ -137,6 +138,12 @@ try {
   assert.ok(event.html.includes('class="payment-head"'));
   assert.match(event.html, /assets\/event-workspace\.css\?v=\d+/);
   assert.match(event.html, /assets\/event-workspace\.js\?v=\d+/);
+  checks++;
+  const sameNameWrongGuide = await page('event.php', {id:1}, {}, false, {role:'guide',name:'Гид А',guideId:2});
+  assert.equal(sameNameWrongGuide.status,403);
+  const renamedRightGuide = await page('event.php', {id:1}, {}, false, {role:'guide',name:'Новое имя',guideId:1,setup:["UPDATE guides SET name='Новое имя' WHERE id=1"]});
+  assert.equal(renamedRightGuide.status,200);
+  assert.ok(renamedRightGuide.html.includes('Новое имя'));
   checks++;
   const completedEvent = await page('event.php', {id:4}, {complete_event:1});
   assert.ok(completedEvent.data.all_events.find(row => Number(row.id) === 4).completed_at);
@@ -269,16 +276,16 @@ try {
   assert.ok(calendar.html.includes('role=\'button\' tabindex=\'0\''));
   assert.ok(calendar.html.includes('name="csrf_token"'));
   checks++;
-  const scheduledEvent = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide:'Гид А'});
+  const scheduledEvent = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide_id:1});
   assert.equal(scheduledEvent.data.all_events.length, 6);
   assert.equal(scheduledEvent.data.all_events.at(-1).time, '09:30');
   checks++;
-  const scheduleConflict = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide:'Гид А'}, false, {setup:["INSERT INTO guide_timeoffs (guide_name,date_off,reason) VALUES ('Гид А','2026-09-20','Отпуск')"]});
+  const scheduleConflict = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide_id:1}, false, {setup:["INSERT INTO guide_timeoffs (guide_id,guide_name,date_off,reason) VALUES (1,'Гид А','2026-09-20','Отпуск')"]});
   assert.equal(scheduleConflict.data.all_events.length, 5);
   assert.ok(scheduleConflict.html.includes('Проверьте расписание'));
   assert.ok(scheduleConflict.html.includes('Отпуск'));
   assert.ok(scheduleConflict.html.includes('Всё равно добавить выезд'));
-  const forcedScheduleConflict = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide:'Гид А',schedule_override:1}, false, {setup:["INSERT INTO guide_timeoffs (guide_name,date_off) VALUES ('Гид А','2026-09-20')"]});
+  const forcedScheduleConflict = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-09-20',time:'09:30',guide_id:1,schedule_override:1}, false, {setup:["INSERT INTO guide_timeoffs (guide_id,guide_name,date_off) VALUES (1,'Гид А','2026-09-20')"]});
   assert.equal(forcedScheduleConflict.data.all_events.length, 6);
   checks++;
   const invalidScheduledEvent = await page('schedule.php', {ym:'2026-09'}, {add_single_event:1,tour_id:1,tour_date:'2026-02-30',time:'09:30',guide:'Гид А'});
@@ -446,7 +453,7 @@ try {
   checks++;
 
   const fields = {client_name:'Новая бронь',phone:'70000000001',email:'new@example.invalid',seats:5,price:2500,source:'CRM',status:'Бронь',notes:'Тест'};
-  const details = {tour_date:'2026-09-08',time:'14:35',tour_id:1,guide:'Гид А',notes:'Проверка'};
+  const details = {tour_date:'2026-09-08',time:'14:35',tour_id:1,guide_id:1,notes:'Проверка'};
   const newEvent = await page('index.php', {}, {ajax_add_event:1,...details});
   assert.equal(JSON.parse(newEvent.html).status, 'success');
   assert.equal(newEvent.data.all_events.at(-1).time, '14:35');
@@ -465,8 +472,8 @@ try {
   const allScheduleWarnings = await page('index.php', {}, {ajax_add_event:1,...details,tour_date:'2026-09-09'}, false, {setup:[
     "UPDATE global_settings SET setting_value='1' WHERE setting_key='working_days'",
     "UPDATE guides SET allowed_tours='2' WHERE name='Гид А'",
-    "INSERT INTO guide_timeoffs (guide_name,date_off,reason) VALUES ('Гид А','2026-09-09','Отгул')",
-    "INSERT INTO events (id,tour_date,time,tour_id,guide) VALUES (20,'2026-09-09','14:35',2,'Гид А')"
+    "INSERT INTO guide_timeoffs (guide_id,guide_name,date_off,reason) VALUES (1,'Гид А','2026-09-09','Отгул')",
+    "INSERT INTO events (id,tour_date,time,tour_id,guide_id,guide) VALUES (20,'2026-09-09','14:35',2,1,'Гид А')"
   ]});
   const warningText = JSON.parse(allScheduleWarnings.html).warnings.join(' ');
   for (const fragment of ['рабочий график','не назначен на этот маршрут','Отгул','уже есть выезд']) assert.ok(warningText.includes(fragment), fragment);
@@ -477,23 +484,23 @@ try {
   const notificationFailure = await page('index.php', {}, {ajax_add_event:1,...details}, false, {notificationError:true});
   assert.equal(JSON.parse(notificationFailure.html).status, 'success');
   assert.equal(notificationFailure.data.all_events.length, 6); checks++;
-  for (const invalid of [{time:'25:70'},{tour_date:'2026-02-30'},{tour_id:999},{guide:'Чужой'},{csrf_token:''}]) {
+  for (const invalid of [{time:'25:70'},{tour_date:'2026-02-30'},{tour_id:999},{guide_id:999},{csrf_token:''}]) {
     const result = await page('index.php', {}, {ajax_add_event:1,...details,...invalid});
     assert.equal(JSON.parse(result.html).status, 'error');
     assert.equal(result.data.all_events.length, 5);
     assert.equal(result.data.notifications.length, 0); checks++;
   }
-  const edit = await page('index.php', {tour_filter:1,guide_filter:'Гид А',sort:'guide',dir:'desc'}, {update_event:1,event_id:1,...details});
+  const edit = await page('index.php', {tour_filter:1,guide_filter:'1',sort:'guide',dir:'desc'}, {update_event:1,event_id:1,...details});
   assert.equal(edit.data.all_events[0].time, '14:35');
-  assert.equal(edit.headers.location[0], 'index.php?tour_filter=1&guide_filter=%D0%93%D0%B8%D0%B4%20%D0%90&sort=guide&dir=desc'); checks++;
+  assert.equal(edit.headers.location[0], 'index.php?tour_filter=1&guide_filter=1&sort=guide&dir=desc'); checks++;
   const evilReturn = await page('index.php', {}, {update_event:1,event_id:1,...details,return_to:'https://example.invalid/'});
   assert.equal(evilReturn.headers.location[0], 'index.php'); checks++;
   const filteredHistory = JSON.parse((await page('index.php', {}, {ajax_load_past:1,offset:0,tour_filter:2})).html);
   assert.equal(filteredHistory.count, 0); checks++;
-  const sameDaySetup = ["UPDATE events SET completed_at='2026-08-02 12:00:00' WHERE id=4", "INSERT INTO events (id,tour_date,time,tour_id,guide,completed_at) VALUES (10,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(11,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(12,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(13,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(14,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00'),(15,'2026-08-02','10:00',1,'Гид А','2026-08-02 12:00:00')"];
+  const sameDaySetup = ["UPDATE events SET completed_at='2026-08-02 12:00:00' WHERE id=4", "INSERT INTO events (id,tour_date,time,tour_id,guide_id,guide,completed_at) VALUES (10,'2026-08-02','10:00',1,1,'Гид А','2026-08-02 12:00:00'),(11,'2026-08-02','10:00',1,1,'Гид А','2026-08-02 12:00:00'),(12,'2026-08-02','10:00',1,1,'Гид А','2026-08-02 12:00:00'),(13,'2026-08-02','10:00',1,1,'Гид А','2026-08-02 12:00:00'),(14,'2026-08-02','10:00',1,1,'Гид А','2026-08-02 12:00:00'),(15,'2026-08-02','10:00',1,1,'Гид А','2026-08-02 12:00:00')"];
   const ids = [];
   for (const offset of [0,5]) {
-    const response = JSON.parse((await page('index.php', {}, {ajax_load_past:1,offset,tour_filter:1,guide_filter:'Гид А'},false,{setup:sameDaySetup})).html);
+    const response = JSON.parse((await page('index.php', {}, {ajax_load_past:1,offset,tour_filter:1,guide_filter:'1'},false,{setup:sameDaySetup})).html);
     ids.push(...[...response.html.matchAll(/class='view_e_(\d+)/g)].map(m=>Number(m[1])));
   }
   assert.equal(ids.length,7); assert.equal(new Set(ids).size,7); checks++;
@@ -510,7 +517,7 @@ try {
   assert.ok(specialName.html.includes('return_to=')); checks++;
   const invalidDates = await page('index.php', {date_from:'2026-09-30',date_to:'2026-09-01'});
   assert.equal(invalidDates.data.dash_tours,0); assert.ok(invalidDates.html.includes('Дата начала должна')); checks++;
-  const unassigned = await page('index.php', {guide_filter:'Не назначен'}, {}, false, {setup:["UPDATE events SET guide='Не назначен (Нет свободных)' WHERE id=1"]});
+  const unassigned = await page('index.php', {guide_filter:'Не назначен'}, {}, false, {setup:["UPDATE events SET guide_id=NULL,guide='Не назначен (Нет свободных)' WHERE id=1"]});
   assert.equal(unassigned.data.dash_tours,1); checks++;
   assert.equal(event.data.total_expenses,300.75); checks++;
   assert.ok(event.html.includes('05.09.2026'));
@@ -554,7 +561,7 @@ try {
   }
   for (const setup of [
     ["INSERT INTO blocked_dates (block_date,action_type,tours) VALUES ('2026-09-05','close','1')"],
-    ["INSERT INTO guide_timeoffs (guide_name,date_off) VALUES ('Гид А','2026-09-05')"],
+    ["INSERT INTO guide_timeoffs (guide_id,guide_name,date_off) VALUES (1,'Гид А','2026-09-05')"],
     ["UPDATE guides SET allowed_tours='2'"],
     ["UPDATE tours_catalog SET is_archived=1 WHERE id=1"],
     ["UPDATE global_settings SET setting_value='' WHERE setting_key='working_days'"],

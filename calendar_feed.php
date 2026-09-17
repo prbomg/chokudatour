@@ -39,12 +39,15 @@ if (empty($token)) {
 
 $is_admin = hash_equals((string)$admin_token, (string)$token);
 $guide_name = '';
+$guide_id = null;
 
 if (!$is_admin) {
     // Ищем конкретного гида
-    $stmt = $pdo->prepare("SELECT name FROM guides WHERE sync_token = ?");
+    $stmt = $pdo->prepare("SELECT id,name FROM guides WHERE sync_token = ?");
     $stmt->execute([$token]);
-    $guide_name = $stmt->fetchColumn();
+    $guideRow = $stmt->fetch(PDO::FETCH_ASSOC);
+    $guide_id = $guideRow ? (int)$guideRow['id'] : null;
+    $guide_name = $guideRow['name'] ?? '';
 
     if (!$guide_name) {
         http_response_code(403);
@@ -67,20 +70,22 @@ echo "X-WR-TIMEZONE:Europe/Moscow\r\n";
 // --- 1. ВЫВОДИМ ЭКСКУРСИИ ---
 if ($is_admin) {
     // Для админа выбираем ВСЕ экскурсии
-    $sql = "SELECT e.id, e.tour_date, e.time, e.guide, e.notes, t.name AS tour_name, t.duration
+    $sql = "SELECT e.id, e.tour_date, e.time, COALESCE(g.name,e.guide) guide, e.notes, t.name AS tour_name, t.duration
             FROM events e 
             JOIN tours_catalog t ON e.tour_id = t.id 
+            LEFT JOIN guides g ON g.id=e.guide_id
             WHERE e.tour_date >= CURDATE() - INTERVAL 15 DAY";
     $stmt = $pdo->prepare($sql);
     $stmt->execute();
 } else {
     // Для гида — только его
-    $sql = "SELECT e.id, e.tour_date, e.time, e.guide, e.notes, t.name AS tour_name, t.duration
+    $sql = "SELECT e.id, e.tour_date, e.time, COALESCE(g.name,e.guide) guide, e.notes, t.name AS tour_name, t.duration
             FROM events e 
             JOIN tours_catalog t ON e.tour_id = t.id 
-            WHERE e.guide = ? AND e.tour_date >= CURDATE() - INTERVAL 15 DAY";
+            LEFT JOIN guides g ON g.id=e.guide_id
+            WHERE e.guide_id = ? AND e.tour_date >= CURDATE() - INTERVAL 15 DAY";
     $stmt = $pdo->prepare($sql);
-    $stmt->execute([$guide_name]);
+    $stmt->execute([$guide_id]);
 }
 
 $events = $stmt->fetchAll();
@@ -141,7 +146,7 @@ foreach ($events as $ev) {
 
 // --- 2. ВЫВОДИМ ОТГУЛЫ ГИДОВ (Для Админа) ---
 if ($is_admin) {
-    $to_stmt = $pdo->query("SELECT * FROM guide_timeoffs WHERE date_off >= CURDATE() - INTERVAL 15 DAY");
+    $to_stmt = $pdo->query("SELECT gt.*,COALESCE(g.name,gt.guide_name) guide_display FROM guide_timeoffs gt LEFT JOIN guides g ON g.id=gt.guide_id WHERE date_off >= CURDATE() - INTERVAL 15 DAY");
     $timeoffs = $to_stmt->fetchAll();
 
     foreach ($timeoffs as $to) {
@@ -154,8 +159,8 @@ if ($is_admin) {
         echo "DTSTAMP:" . gmdate('Ymd\THis\Z') . "\r\n";
         echo "DTSTART;VALUE=DATE:{$t_date}\r\n";
         echo "DTEND;VALUE=DATE:{$t_date_end}\r\n";
-        icsTextLine('SUMMARY', '🏖️ Отгул: ' . $to['guide_name']);
-        icsTextLine('DESCRIPTION', 'Гид ' . $to['guide_name'] . ' в отгуле/отпуске. ' . ($to['reason'] ? 'Причина: ' . $to['reason'] : ''));
+        icsTextLine('SUMMARY', '🏖️ Отгул: ' . $to['guide_display']);
+        icsTextLine('DESCRIPTION', 'Гид ' . $to['guide_display'] . ' в отгуле/отпуске. ' . ($to['reason'] ? 'Причина: ' . $to['reason'] : ''));
         echo "END:VEVENT\r\n";
     }
 }

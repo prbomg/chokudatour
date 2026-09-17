@@ -62,15 +62,15 @@ $working_days = $wd_val ? explode(',', $wd_val) : [];
 
 // Получаем занятые экскурсии (с tour_id для проверки групповых)
 $seat_sql = participantSeatsSql($pdo, 'p');
-$busy_events = $pdo->query("SELECT e.id, e.tour_date, e.guide, e.tour_id, COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seat_sql} ELSE 0 END),0) seats_count FROM events e LEFT JOIN participants p ON p.event_id=e.id WHERE e.tour_date >= CURDATE() GROUP BY e.id,e.tour_date,e.guide,e.tour_id")->fetchAll(PDO::FETCH_ASSOC);
+$busy_events = $pdo->query("SELECT e.id,e.tour_date,e.guide_id,e.tour_id,COALESCE(SUM(CASE WHEN p.status!='Отмена' THEN {$seat_sql} ELSE 0 END),0) seats_count FROM events e LEFT JOIN participants p ON p.event_id=e.id WHERE e.tour_date >= CURDATE() GROUP BY e.id,e.tour_date,e.guide_id,e.tour_id")->fetchAll(PDO::FETCH_ASSOC);
 
 // Загружаем отгулы
-$guide_timeoffs = $pdo->query("SELECT guide_name, date_off FROM guide_timeoffs WHERE date_off >= CURDATE()")->fetchAll(PDO::FETCH_ASSOC);
+$guide_timeoffs = $pdo->query("SELECT guide_id,date_off FROM guide_timeoffs WHERE date_off >= CURDATE()")->fetchAll(PDO::FETCH_ASSOC);
 
-$guides_data = $pdo->query("SELECT name, allowed_tours FROM guides")->fetchAll(PDO::FETCH_ASSOC);
+$guides_data = $pdo->query("SELECT id,name,allowed_tours FROM guides")->fetchAll(PDO::FETCH_ASSOC);
 $js_guides = [];
 foreach($guides_data as $g) {
-    $js_guides[] = ['name' => $g['name'], 'tours' => $g['allowed_tours'] === 'all' ? 'all' : explode(',', $g['allowed_tours'])];
+    $js_guides[] = ['id' => (int)$g['id'], 'name' => $g['name'], 'tours' => $g['allowed_tours'] === 'all' ? 'all' : explode(',', $g['allowed_tours'])];
 }
 
 $rules_raw = $pdo->query("SELECT * FROM blocked_dates WHERE block_date >= CURDATE() ORDER BY id")->fetchAll();
@@ -311,9 +311,9 @@ foreach ($rules_raw as $r) { $rules_map[$r['block_date']] = ['action' => $r['act
                 if (!isAvailable) { cell.classList.add("disabled"); calendarGrid.appendChild(cell); continue; }
                 isAvailable = allGuides.some(g => {
                     const canDo = g.tours === 'all' || g.tours.includes(selectedTourId);
-                    const isOff = guideTimeoffs.some(off => off.date_off === dateStr && off.guide_name === g.name);
+                    const isOff = guideTimeoffs.some(off => off.date_off === dateStr && Number(off.guide_id) === Number(g.id));
                     if (!canDo || isOff) return false;
-                    const busy = dayEvents.filter(e => e.guide === g.name);
+                    const busy = dayEvents.filter(e => Number(e.guide_id) === Number(g.id));
                     // An existing group can only accept bookings through its
                     // assigned guide, with no conflicting departure that day.
                     return joiningGroup

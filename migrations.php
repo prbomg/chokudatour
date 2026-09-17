@@ -83,6 +83,31 @@ function applicationMigrations(): array
             $stmt=$pdo->prepare('SELECT COUNT(*) FROM global_settings WHERE setting_key=?'); $stmt->execute(['client_tags']); if (!$stmt->fetchColumn()) $pdo->prepare('INSERT INTO global_settings(setting_key,setting_value) VALUES (?,?)')->execute(['client_tags','VIP,Лояльный,Семья с детьми,Сложный клиент,Черный список']);
             $ids=$pdo->query("SELECT id FROM participants WHERE ticket_token IS NULL OR ticket_token='' ")->fetchAll(PDO::FETCH_COLUMN); $update=$pdo->prepare('UPDATE participants SET ticket_token=? WHERE id=?'); foreach($ids as $id) $update->execute([bin2hex(random_bytes(16)),(int)$id]);
         }],
+        6 => ['name'=>'Связи гидов по идентификатору','up'=>function(PDO $pdo): void {
+            migrationAddColumn($pdo,'events','guide_id','INT NULL');
+            migrationAddColumn($pdo,'guide_timeoffs','guide_id','INT NULL');
+            migrationAddColumn($pdo,'users','guide_id','INT NULL');
+            $pdo->exec("UPDATE events SET guide_id=(SELECT MIN(g.id) FROM guides g WHERE g.name=events.guide) WHERE guide_id IS NULL AND guide IS NOT NULL AND guide<>'' AND guide<>'Не назначен'");
+            $pdo->exec("UPDATE guide_timeoffs SET guide_id=(SELECT MIN(g.id) FROM guides g WHERE g.name=guide_timeoffs.guide_name) WHERE guide_id IS NULL");
+            $pdo->exec("UPDATE users SET guide_id=(SELECT MIN(g.id) FROM guides g WHERE g.name=users.name) WHERE guide_id IS NULL AND role='guide'");
+            $guideUsers=$pdo->query("SELECT id,name FROM users WHERE role='guide' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+            $usedGuideIds=[];
+            foreach($guideUsers as $guideUser) {
+                $stmt=$pdo->prepare('SELECT id FROM guides WHERE name=? ORDER BY id'); $stmt->execute([$guideUser['name']]); $candidateIds=array_map('intval',$stmt->fetchAll(PDO::FETCH_COLUMN));
+                $guideId=null; foreach($candidateIds as $candidateId) if(!isset($usedGuideIds[$candidateId])) { $guideId=$candidateId; break; }
+                if(!$guideId) {
+                    $pdo->prepare("INSERT INTO guides(name,sort_order,allowed_tours) VALUES (?,999,'all')")->execute([$guideUser['name']]);
+                    $guideId=(int)$pdo->lastInsertId();
+                }
+                $pdo->prepare('UPDATE users SET guide_id=? WHERE id=?')->execute([$guideId,(int)$guideUser['id']]); $usedGuideIds[$guideId]=true;
+            }
+            if (migrationDriver($pdo)==='mysql') {
+                foreach ([['events','events_guide_id_idx'],['guide_timeoffs','timeoffs_guide_id_idx'],['users','users_guide_id_idx']] as [$table,$index]) {
+                    $stmt=$pdo->prepare('SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=?'); $stmt->execute([$table,$index]);
+                    if(!$stmt->fetchColumn()) $pdo->exec("CREATE INDEX {$index} ON {$table}(guide_id)");
+                }
+            }
+        }],
     ];
 }
 

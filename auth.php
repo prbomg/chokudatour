@@ -14,6 +14,7 @@ if (!isset($_SESSION['user_id']) && isset($_COOKIE['remember_token'])) {
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['user_role'] = $user['role'];
         $_SESSION['user_name'] = $user['name'];
+        $_SESSION['guide_id'] = $user['role'] === 'guide' ? (int)($user['guide_id'] ?? 0) : null;
         issueRememberToken($pdo, (int)$user['id']);
     } else {
         clearRememberToken($pdo);
@@ -30,4 +31,10 @@ if (!isset($_SESSION['user_id'])) {
 $current_user_id = $_SESSION['user_id'];
 $current_user_role = $_SESSION['user_role'];
 $current_user_name = $_SESSION['user_name'];
+$current_user_guide_id = $current_user_role === 'guide' ? (int)($_SESSION['guide_id'] ?? 0) : null;
+if ($current_user_role === 'guide' && !$current_user_guide_id) {
+    $stmt = $pdo->prepare('SELECT guide_id FROM users WHERE id=?'); $stmt->execute([(int)$current_user_id]);
+    $current_user_guide_id = (int)$stmt->fetchColumn();
+    $_SESSION['guide_id'] = $current_user_guide_id;
+}
 ?>

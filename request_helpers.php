@@ -24,10 +24,11 @@ function requireFormToken(): void
 
 function requireEventAccess(PDO $pdo, int $eventId, string $role, string $name): void
 {
-    $stmt = $pdo->prepare('SELECT guide FROM events WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT guide_id FROM events WHERE id = ?');
     $stmt->execute([$eventId]);
     $event = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$event || ($role !== 'admin' && ($event['guide'] ?? '') !== $name)) {
+    $userGuideId = (int)($GLOBALS['current_user_guide_id'] ?? $_SESSION['guide_id'] ?? 0);
+    if (!$event || ($role !== 'admin' && (!$userGuideId || (int)($event['guide_id'] ?? 0) !== $userGuideId))) {
         http_response_code(403);
         exit('Доступ к экскурсии запрещён.');
     }
