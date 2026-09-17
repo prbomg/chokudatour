@@ -17,6 +17,7 @@ require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/booking_helpers.php';
 require_once __DIR__ . '/activity_log.php';
 require_once __DIR__ . '/payment_helpers.php';
+require_once __DIR__ . '/money_helpers.php';
 $page_error = '';
 
 // --- РЕДАКТИРОВАНИЕ УЧАСТНИКА ---
@@ -102,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
             $clean_phone = preg_replace('/[^0-9]/', '', $p['phone'] ?? '');
             if (str_starts_with($clean_phone, '8') && strlen($clean_phone) == 11) { $clean_phone = '7' . substr($clean_phone, 1); }
             $date_str = date('d.m.Y', strtotime($p['tour_date']));
-            $price_str = number_format($p['price'] ?? 0, 0, '', ' ') . ' ₽';
+            $price_str = moneyFormat($p['price'] ?? 0);
             $opacity = ($p['status'] ?? '') === 'Отмена' ? '0.5' : '1';
             
             $note_html = !empty($p['notes']) ? "<div class='note-truncate' data-note='".htmlspecialchars($p['notes'], ENT_QUOTES)."' onclick=\"showNoteModal(this.getAttribute('data-note'))\">" . htmlspecialchars($p['notes']) . "</div>" : "—";
@@ -163,7 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past_partic
                     <input form='formEditP_{$p_id}' type='email' name='email' class='t-input' value='".htmlspecialchars($p['email'] ?? '')."' placeholder='E-mail'>
                 </td>
                 <td><input form='formEditP_{$p_id}' type='number' name='seats' class='t-input' value='".htmlspecialchars(participantSeats($p))."' min='1' required style='min-width: 50px;'>{$seats_warning}</td>
-                <td><input form='formEditP_{$p_id}' type='number' name='price' class='t-input' value='".htmlspecialchars($p['price'] ?? '0')."' style='min-width: 70px;'></td>
+                <td><input form='formEditP_{$p_id}' type='number' name='price' step='0.01' class='t-input' value='".htmlspecialchars($p['price'] ?? '0')."' style='min-width: 70px;'></td>
                 <td>
                     <select form='formEditP_{$p_id}' name='source' class='t-input'>
                         <option value='Прямые' {$sel_dir}>Прямые</option><option value='Трипстер' {$sel_trp}>Трипстер</option><option value='Спутник 8' {$sel_sp}>Спутник 8</option><option value='CRM' {$sel_crm}>CRM</option><option value='Сайт' {$sel_site}>Сайт</option>
@@ -243,7 +244,7 @@ $total_money = 0;
 $total_seats = 0;
 foreach ($participants as $p) {
     if (($p['status'] ?? '') !== 'Отмена') {
-        $total_money += (int)($p['price'] ?? 0);
+        $total_money += moneyValue($p['price'] ?? 0);
         $total_seats += participantSeats($p);
     }
 }
@@ -445,7 +446,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         </div>
         <div class="dash-card profit">
             <div class="dash-title">Сумма чеков (без отмен)</div>
-            <div class="dash-val val-green"><?= number_format($total_money, 0, '', ' ') ?> ₽</div>
+            <div class="dash-val val-green"><?= moneyFormat($total_money) ?></div>
         </div>
     </div>
 
@@ -564,7 +565,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                             <small style="display:block; color:#92400E;">Количество расходится: <?= (int)$p['places'] ?> / <?= (int)$p['seats'] ?>. Проверьте перед сохранением.</small>
                             <?php endif; ?>
                         </td>
-                        <td class="col-price"><?= number_format($p['price'] ?? 0, 0, '', ' ') ?> ₽</td>
+                        <td class="col-price"><?= moneyFormat($p['price'] ?? 0) ?></td>
                         <td style="color: var(--text-muted); font-size: 13px; font-weight:600;"><?= htmlspecialchars($p['source'] ?? '') ?></td>
                         <td><span class="status-badge status-<?= md5($p['status'] ?? '') ?>"><?= htmlspecialchars($p['status'] ?? '') ?></span></td>
                         <td class="col-note">
@@ -602,7 +603,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                             <small style="display:block; color:#92400E;">Количество расходится: <?= (int)$p['places'] ?> / <?= (int)$p['seats'] ?>. Проверьте перед сохранением.</small>
                             <?php endif; ?>
                         </td>
-                        <td><input form="formEditP_<?= $p_id ?>" type="number" name="price" class="t-input" value="<?= htmlspecialchars($p['price'] ?? '0') ?>" style="min-width: 70px;"></td>
+                        <td><input form="formEditP_<?= $p_id ?>" type="number" name="price" step="0.01" class="t-input" value="<?= htmlspecialchars($p['price'] ?? '0') ?>" style="min-width: 70px;"></td>
                         <td>
                             <select form="formEditP_<?= $p_id ?>" name="source" class="t-input">
                                 <option value="Прямые" <?= ($p['source'] ?? '') === 'Прямые' ? 'selected' : '' ?>>Прямые</option>

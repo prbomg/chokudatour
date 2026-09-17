@@ -4,6 +4,7 @@ ini_set('display_errors', 0);
 
 require_once 'db.php';
 require_once __DIR__ . '/participant_seats.php';
+require_once __DIR__ . '/money_helpers.php';
 require_once 'telegram.php';
 require_once __DIR__ . '/public_booking.php';
 $booking_token = preg_match('/^[a-f0-9]{64}$/D', (string)($_POST['booking_token'] ?? '')) ? $_POST['booking_token'] : bin2hex(random_bytes(32));
@@ -31,7 +32,7 @@ foreach ($tours_raw as $t) {
     
     $tours_data_js[$t['id']] = [
         'name' => $display_name,
-        'price' => (int)$price,
+        'price' => moneyValue($price),
         'type' => $t['tour_type'],
         'maxGroupSize' => (int)($t['max_group_size'] ?? 0)
     ];

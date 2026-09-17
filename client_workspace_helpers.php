@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/money_helpers.php';
 
 function clientTagsFromString($value): array
 {
@@ -20,7 +21,7 @@ function clientTagStyle(string $tag): string
 
 function clientMoney($amount): string
 {
-    return number_format((float)$amount, 0, ',', ' ') . ' ₽';
+    return moneyFormat($amount);
 }
 
 function clientCountPhrase(int $count, array $forms): string

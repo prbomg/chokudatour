@@ -8,6 +8,7 @@ require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/expense_helpers.php';
 require_once __DIR__ . '/booking_helpers.php';
 require_once __DIR__ . '/event_schedule_validation.php';
+require_once __DIR__ . '/money_helpers.php';
 $filter_error = '';
 try { $home_filters = homeFilters($_GET); } catch (InvalidArgumentException $e) { $home_filters = []; $filter_error = $e->getMessage(); }
 $home_url = homeUrl($home_filters);
@@ -135,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_load_past'])) {
                 $tour_name = htmlspecialchars($ev['tour_name']);
                 $guide = htmlspecialchars($ev['guide'] ?: 'Не назначен');
                 $guide_style = getGuideColorStyle($ev['guide']);
-                $income = number_format($ev['total_price'], 0, '', ' ') . ' ₽';
+                $income = moneyFormat($ev['total_price']);
                 $time_val = !empty($ev['time']) ? htmlspecialchars($ev['time']) : '';
                 $time_html = $time_val ? "<div style='color: var(--primary); font-size: 11px; font-weight: 700; margin-top: 4px;'>⏱ {$time_val}</div>" : "";
                 
@@ -318,9 +319,9 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         Подгруженная история в эти итоги не входит. Для расчёта за прошлый период выберите даты.
     </p>
     <div class="dash-grid">
-        <div class="dash-card profit"><div class="dash-title">Чистая прибыль</div><div class="dash-val val-green"><?= number_format($dash_profit, 0, '', ' ') ?> ₽</div></div>
-        <div class="dash-card"><div class="dash-title">Всего дохода</div><div class="dash-val"><?= number_format($dash_income, 0, '', ' ') ?> ₽</div></div>
-        <div class="dash-card"><div class="dash-title">Всего расходов</div><div class="dash-val val-red"><?= number_format($dash_expenses, 0, '', ' ') ?> ₽</div></div>
+        <div class="dash-card profit"><div class="dash-title">Чистая прибыль</div><div class="dash-val val-green"><?= moneyFormat($dash_profit) ?></div></div>
+        <div class="dash-card"><div class="dash-title">Всего дохода</div><div class="dash-val"><?= moneyFormat($dash_income) ?></div></div>
+        <div class="dash-card"><div class="dash-title">Всего расходов</div><div class="dash-val val-red"><?= moneyFormat($dash_expenses) ?></div></div>
         <div class="dash-card"><div class="dash-title">Выездов (мест)</div><div class="dash-val"><?= $dash_tours ?> <span style="font-size: 14px; color: var(--text-muted); font-weight:600;">(<?= $dash_clients ?> чел.)</span></div></div>
     </div>
 
@@ -418,7 +419,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                     <td data-label="Тур"><a href="event.php?id=<?= $ev['id'] ?><?= htmlspecialchars($context_suffix, ENT_QUOTES) ?>" class="link-tour"><?= htmlspecialchars($ev['tour_name']) ?></a></td>
                     <td data-label="Гид"><span class="guide-tag" style="<?= getGuideColorStyle($ev['guide']) ?>"><?= htmlspecialchars($ev['guide'] ?: 'Не назначен') ?></span></td>
                     <td data-label="Мест"><span class="seats-badge"><?= $ev['seats_count'] ?></span></td>
-                    <td data-label="Доход" class="col-price" style="color: #10B981;"><?= number_format($ev['total_price'], 0, '', ' ') ?> ₽</td>
+                    <td data-label="Доход" class="col-price" style="color: #10B981;"><?= moneyFormat($ev['total_price']) ?></td>
                     <td data-label="Туристы">
                         <?php 
                         $clients_html = homeClientsHtml($event_participants[$ev['id']] ?? [], (int)$ev['id'], $home_url);
@@ -434,7 +435,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                     </td>
                     <td data-label="Действия" style="text-align: right; white-space: nowrap;">
                         <div class="action-cell">
-                            <?php if (empty($ev['completed_at']) && $ev['tour_date'] <= date('Y-m-d')): $completion_text="Подтвердить, что выезд прошёл?\n\nБронирования: ".number_format($ev['total_price'],0,'',' ')." ₽\nПредоплаты: ".number_format($ev['total_prepayments'],0,'',' ')." ₽\nРасходы: ".number_format($ev['total_expenses'],0,'',' ')." ₽\nПрибыль: ".number_format($ev['total_price']-$ev['total_expenses'],0,'',' ')." ₽"; ?><form method="post" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>" onsubmit="return confirm(<?= htmlspecialchars(json_encode($completion_text, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)"><?= formTokenInput() ?><button type="submit" name="complete_event" value="<?= (int)$ev['id'] ?>" class="btn-icon btn-complete" title="Выезд прошёл" aria-label="Отметить выезд проведённым">✓</button></form><?php endif; ?>
+                            <?php if (empty($ev['completed_at']) && $ev['tour_date'] <= date('Y-m-d')): $completion_text="Подтвердить, что выезд прошёл?\n\nБронирования: ".moneyFormat($ev['total_price'])."\nПредоплаты: ".moneyFormat($ev['total_prepayments'])."\nРасходы: ".moneyFormat($ev['total_expenses'])."\nПрибыль: ".moneyFormat($ev['total_price']-$ev['total_expenses']); ?><form method="post" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>" onsubmit="return confirm(<?= htmlspecialchars(json_encode($completion_text, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)"><?= formTokenInput() ?><button type="submit" name="complete_event" value="<?= (int)$ev['id'] ?>" class="btn-icon btn-complete" title="Выезд прошёл" aria-label="Отметить выезд проведённым">✓</button></form><?php endif; ?>
                             <button type="button" class="btn-icon btn-edit" onclick="toggleEditE(<?= $ev['id'] ?>)" title="Редактировать">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                             </button>
@@ -464,7 +465,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
                         </select>
                     </td>
                     <td data-label="Мест"><span class="seats-badge"><?= $ev['seats_count'] ?></span></td>
-                    <td data-label="Доход" class="col-price" style="color: #10B981;"><?= number_format($ev['total_price'], 0, '', ' ') ?> ₽</td>
+                    <td data-label="Доход" class="col-price" style="color: #10B981;"><?= moneyFormat($ev['total_price']) ?></td>
                     <td data-label="Туристы"><?= $clients_html ?: '—' ?></td>
                     <td data-label="Примечание"><input form="formEditE_<?= $ev['id'] ?>" type="text" name="notes" class="t-input" value="<?= htmlspecialchars($ev['notes'] ?? '') ?>"></td>
                     <td data-label="Действие" style="text-align: right; white-space: nowrap;">
@@ -590,7 +591,7 @@ $next_week_end = date('Y-m-d', strtotime("+$days_to_sunday days +7 days"));
         <form method="POST" enctype="multipart/form-data" action="<?= htmlspecialchars($home_url, ENT_QUOTES) ?>"><?= formTokenInput() ?>
             <input type="hidden" name="add_expense" value="1">
             <input type="hidden" name="event_id" id="expenseEventId">
-            <div class="form-group"><label>Сумма (₽) *</label><input type="number" name="amount" min="1" class="t-input" required placeholder="Например: 1500"></div>
+            <div class="form-group"><label>Сумма (₽) *</label><input type="number" name="amount" min="0.01" step="0.01" class="t-input" required placeholder="Например: 1500,50"></div>
             <div class="form-group"><label>Категория *</label><select name="category" class="t-input" required><?php if(!empty($expense_cats)){ foreach($expense_cats as $c){ echo "<option value='".htmlspecialchars($c)."'>".htmlspecialchars($c)."</option>"; } } ?><option value="Прочее">Прочее</option></select></div>
             <div class="form-group"><label>Комментарий</label><input type="text" name="description" class="t-input" placeholder="Обед, бензин, билеты..."></div>
             <div class="form-group"><label>Фото чека</label><input type="file" name="receipt" accept="image/*" class="t-input" style="padding:10px;"></div>

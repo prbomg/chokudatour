@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/money_helpers.php';
 require_once __DIR__ . '/homepage_helpers.php';
 require_once __DIR__ . '/booking_helpers.php';
 require_once __DIR__ . '/participant_seats.php';
@@ -71,8 +72,9 @@ function createPublicBooking(PDO $pdo, array $input, int $sourceId): array
         if ($assigned === null && $group && $sameTour && $maxGroupSize > 0) throw new InvalidArgumentException('В выбранной группе недостаточно свободных мест.');
         if ($assigned === null) throw new InvalidArgumentException('На эту дату нет доступного гида. Выберите другую дату.');
         $prices = json_decode($tour['prices'] ?? '', true) ?: [];
-        $price = (int)($prices[$sourceId] ?? $prices[-1] ?? 0) * ($group ? $seats : 1);
-        if ($price < 0 || $price > 2147483647) throw new InvalidArgumentException('Проверьте количество человек и стоимость экскурсии.');
+        $unitPrice = moneyValue($prices[$sourceId] ?? $prices[-1] ?? 0);
+        $price = moneyValue($unitPrice * ($group ? $seats : 1));
+        if ($price < 0 || $price > 999999999.99) throw new InvalidArgumentException('Проверьте количество человек и стоимость экскурсии.');
         if ($eventId === null) {
             $time = $tour['default_start_time'] ?: '10:00';
             $pdo->prepare("INSERT INTO events (tour_date, time, tour_id, guide_id, guide, notes) VALUES (?, ?, ?, ?, ?, 'Заявка с сайта')")->execute([$date, $time, $tourId, $assignedId, $assigned]);

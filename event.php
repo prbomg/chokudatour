@@ -9,6 +9,7 @@ require_once __DIR__ . '/participant_seats.php';
 require_once __DIR__ . '/booking_helpers.php';
 require_once __DIR__ . '/expense_helpers.php';
 require_once __DIR__ . '/payment_helpers.php';
+require_once __DIR__ . '/money_helpers.php';
 
 $return_url = homeReturnUrl($_GET['return_to'] ?? 'index.php');
 $return_suffix = '&return_to=' . rawurlencode($return_url);
@@ -23,8 +24,7 @@ $time_col = 'time';
 $part_cols = $pdo->query('SHOW COLUMNS FROM participants')->fetchAll(PDO::FETCH_COLUMN);
 function eventMoney($amount): string
 {
-    $value = (float)$amount;
-    return number_format($value, abs($value - round($value)) < 0.00001 ? 0 : 2, ',', ' ') . ' ₽';
+    return moneyFormat($amount);
 }
 
 function eventCountPhrase(int $count, array $forms): string
@@ -149,7 +149,7 @@ foreach ($participants as $participant) {
     if (($participant['status'] ?? '') === 'Отмена') { $cancelled_bookings++; continue; }
     $active_bookings++;
     $total_seats += participantSeats($participant);
-    $total_income += (int)($participant['price'] ?? 0);
+    $total_income += moneyValue($participant['price'] ?? 0);
     $outstanding += max(0, (float)($participant['price'] ?? 0) - (float)($participant_payments[(int)$participant['id']] ?? 0));
 }
 $total_expenses = array_reduce($expenses, fn($sum, $expense) => $sum + (float)($expense['amount'] ?? 0), 0.0);

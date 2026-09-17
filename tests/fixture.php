@@ -18,8 +18,8 @@ class FixturePDO extends PDO
         $this->exec("CREATE TABLE tours_catalog (id INTEGER PRIMARY KEY, name TEXT, public_name TEXT, sort_order INT DEFAULT 0, default_start_time TEXT, tour_type TEXT, max_group_size INT DEFAULT 0, prices TEXT, is_archived INT DEFAULT 0, duration TEXT, coordinates TEXT, description TEXT, difficulty TEXT, food_options TEXT, program TEXT, main_image TEXT, included_text TEXT, not_included_text TEXT, faq_text TEXT, images TEXT)");
         $this->exec("CREATE TABLE tour_modules (id INTEGER PRIMARY KEY, tour_id INT, title TEXT, timing TEXT, content TEXT, image_path TEXT, sort_order INT DEFAULT 999)");
         $this->exec("CREATE TABLE events (id INTEGER PRIMARY KEY, tour_date TEXT, time TEXT DEFAULT '10:00', tour_id INT, guide TEXT, guide_id INT, notes TEXT DEFAULT '', completed_at TEXT, completed_by TEXT)");
-        $this->exec("CREATE TABLE participants (id INTEGER PRIMARY KEY, event_id INT, client_name TEXT, phone TEXT, email TEXT, seats INT DEFAULT 1, " . ($legacy ? '' : 'places INT DEFAULT 1, ') . "price INT, source TEXT, status TEXT, notes TEXT, ticket_token TEXT)");
-        $this->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, event_id INT, amount DECIMAL(10,2), category TEXT, description TEXT, receipt_path TEXT)");
+        $this->exec("CREATE TABLE participants (id INTEGER PRIMARY KEY, event_id INT, client_name TEXT, phone TEXT, email TEXT, seats INT DEFAULT 1, " . ($legacy ? '' : 'places INT DEFAULT 1, ') . "price DECIMAL(12,2), source TEXT, status TEXT, notes TEXT, ticket_token TEXT)");
+        $this->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, event_id INT, amount DECIMAL(12,2), category TEXT, description TEXT, receipt_path TEXT)");
         $this->exec("CREATE TABLE guides (id INTEGER PRIMARY KEY, name TEXT, sort_order INT DEFAULT 0, allowed_tours TEXT, color TEXT)");
         $this->exec("CREATE TABLE booking_sources (id INTEGER PRIMARY KEY, name TEXT, sort_order INT DEFAULT 0)");
         $this->exec("CREATE TABLE booking_statuses (id INTEGER PRIMARY KEY, name TEXT, color TEXT, sort_order INT DEFAULT 0)");
@@ -29,7 +29,7 @@ class FixturePDO extends PDO
         $this->exec("CREATE TABLE blocked_dates (id INTEGER PRIMARY KEY, block_date TEXT, tour_ids TEXT, reason TEXT, action_type TEXT, tours TEXT)");
         $this->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, role TEXT, guide_id INT)");
         $this->exec("CREATE TABLE activity_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT, user_name TEXT DEFAULT '', action TEXT, entity_type TEXT, entity_id INT, summary TEXT DEFAULT '', snapshot TEXT, restored_at TEXT, restored_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        $this->exec("CREATE TABLE payments (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INT, participant_id INT, operation TEXT DEFAULT 'payment', amount DECIMAL(10,2), method TEXT DEFAULT 'cash', paid_at TEXT, note TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP, voided_at TEXT, voided_by TEXT)");
+        $this->exec("CREATE TABLE payments (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INT, participant_id INT, operation TEXT DEFAULT 'payment', amount DECIMAL(12,2), method TEXT DEFAULT 'cash', paid_at TEXT, note TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP, voided_at TEXT, voided_by TEXT)");
         $this->exec("INSERT INTO tours_catalog (id, name, public_name, default_start_time, tour_type, prices) VALUES (1, 'Длинное название экскурсии в историческую усадьбу', 'Тестовый тур', '10:00', 'Групповая', '{\"1\":1000}'), (2, 'Второй тур', 'Второй тур', '11:00', 'Индивидуальная', '{\"1\":2000}')");
         $this->exec("INSERT INTO guides (id,name, allowed_tours) VALUES (1,'Гид А', 'all'), (2,'Гид Б', 'all')");
         $this->exec("INSERT INTO booking_sources (id,name) VALUES (1,'Сайт'), (2,'CRM')");

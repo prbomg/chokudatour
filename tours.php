@@ -5,6 +5,7 @@ error_reporting(E_ALL);
 require_once 'auth.php';
 require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/file_storage.php';
+require_once __DIR__ . '/money_helpers.php';
 
 if ($current_user_role !== 'admin') {
     http_response_code(403);
@@ -359,7 +360,7 @@ function getGuideColor($guideName) {
                         ?>
                         <div class="t-price-item" style="color: <?= $color ?>;">
                             <span><?= htmlspecialchars($s_name) ?>:</span> 
-                            <span style="color:var(--text-main);"><?= number_format($val, 0, '', ' ') ?> ₽</span>
+                            <span style="color:var(--text-main);"><?= moneyFormat($val) ?></span>
                         </div>
                         <?php endforeach; ?>
                     <?php else: ?>

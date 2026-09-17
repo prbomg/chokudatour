@@ -93,7 +93,7 @@
                     $firstName = trim(explode(' ', trim($participantName))[0] ?? $participantName);
                     $message = 'Здравствуйте, ' . $firstName . '! Жду вас ' . date('d.m.Y', strtotime($event[$date_col])) . ' в ' . ($event[$time_col] ?: 'назначенное время') . ' на экскурсию.';
                     if (!empty($event['coordinates'])) $message .= ' Место встречи: ' . $event['coordinates'];
-                    $editData = ['id'=>$participantId,'client_name'=>$participantName,'phone'=>$participant['phone'] ?? '','email'=>$participant['email'] ?? '','seats'=>$seats,'price'=>(int)($participant['price'] ?? 0),'source'=>$participant['source'] ?? 'CRM','status'=>$participant['status'] ?? 'Бронь','notes'=>$participant['notes'] ?? ''];
+                    $editData = ['id'=>$participantId,'client_name'=>$participantName,'phone'=>$participant['phone'] ?? '','email'=>$participant['email'] ?? '','seats'=>$seats,'price'=>moneyValue($participant['price'] ?? 0),'source'=>$participant['source'] ?? 'CRM','status'=>$participant['status'] ?? 'Бронь','notes'=>$participant['notes'] ?? ''];
                     $clientReturn = '&return_to=' . rawurlencode($event_return_url);
                 ?>
                     <article class="participant-row<?= $cancelled ? ' is-cancelled' : '' ?>" data-booking-state="<?= $cancelled ? 'cancelled' : 'active' ?>" role="listitem">
@@ -208,7 +208,7 @@
             <label class="field">Телефон<input name="phone" required inputmode="tel" autocomplete="tel"></label>
             <label class="field">E-mail<input type="email" name="email" autocomplete="email"></label>
             <label class="field">Количество мест<input type="number" name="seats" min="1" step="1" value="1" required></label>
-            <label class="field">Сумма бронирования, ₽<input type="number" name="price" min="0" step="1" value="0" required></label>
+            <label class="field">Сумма бронирования, ₽<input type="number" name="price" min="0" step="0.01" value="0" required></label>
             <label class="field">Источник<select name="source"><?php foreach ($sources_list as $source): ?><option value="<?= htmlspecialchars($source, ENT_QUOTES) ?>" <?= $source === 'CRM' ? 'selected' : '' ?>><?= htmlspecialchars($source) ?></option><?php endforeach; ?></select></label>
             <label class="field">Статус<select name="status"><?php foreach (eventStatuses() as $status): ?><option value="<?= htmlspecialchars($status, ENT_QUOTES) ?>"><?= htmlspecialchars($status) ?></option><?php endforeach; ?></select></label>
             <label class="field field-wide">Примечание<textarea name="notes" rows="3" placeholder="Пожелания, детали оплаты или связи"></textarea></label>

@@ -5,6 +5,7 @@ error_reporting(E_ALL);
 require_once 'auth.php';
 require_once __DIR__ . '/request_helpers.php';
 require_once __DIR__ . '/file_storage.php';
+require_once __DIR__ . '/money_helpers.php';
 
 if ($current_user_role !== 'admin') { http_response_code(403); die("<h2 style='text-align:center; margin-top:50px;'>Доступ закрыт.</h2>"); }
 if ($_SERVER['REQUEST_METHOD'] === 'POST') requireFormToken();
@@ -165,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tour_settings'])
     $posted_prices = $_POST['source_price'] ?? [];
     $prices_to_save = [];
     foreach ($enabled_sources as $s_id => $val) {
-        $prices_to_save[$s_id] = (int)($posted_prices[$s_id] ?? 0);
+        $prices_to_save[$s_id] = moneyValue(moneyDecimalInput($posted_prices[$s_id] ?? 0, 'Стоимость тура'));
     }
     $prices_json = json_encode($prices_to_save, JSON_UNESCAPED_UNICODE);
 
@@ -386,7 +387,7 @@ if (!is_array($faq_items)) {
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
-                            <input type="number" name="source_price[<?= $src_id ?>]" id="price_inp_<?= $src_id ?>" value="<?= $price_val ?>" placeholder="0" <?= $is_enabled ? '' : 'disabled style="opacity:0.5;"' ?>>
+                            <input type="number" step="0.01" min="0" name="source_price[<?= $src_id ?>]" id="price_inp_<?= $src_id ?>" value="<?= $price_val ?>" placeholder="0" <?= $is_enabled ? '' : 'disabled style="opacity:0.5;"' ?>>
                         </div>
                         <?php endforeach; ?>
                     </div>

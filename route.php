@@ -5,6 +5,7 @@ error_reporting(E_ALL);
 // Подключаем только базу, это публичная страница
 require_once 'db.php';
 require_once __DIR__ . '/content_security.php';
+require_once __DIR__ . '/money_helpers.php';
 
 $tour_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($tour_id === 0) {
@@ -350,7 +351,7 @@ $price_label = ($tour_type === 'Групповая') ? 'Стоимость за 
         <div class="sticky-content">
             <div class="price-box">
                 <span class="price-label"><?= $price_label ?></span>
-                <span class="price-val"><?= number_format($price, 0, '', ' ') ?> ₽</span>
+                <span class="price-val"><?= moneyFormat($price) ?></span>
             </div>
             <button onclick="openBookingModal()" class="btn-book">
                 Выбрать дату

@@ -119,7 +119,7 @@ foreach ($history as $trip) {
     if (($trip['status'] ?? '') === 'Отмена') continue;
     $active_event_ids[(int)$trip['event_id']] = true;
     $total_seats += participantSeats($trip);
-    $booking_value += (int)($trip['price'] ?? 0);
+    $booking_value += moneyValue($trip['price'] ?? 0);
 }
 $active_trips = count($active_event_ids);
 $clean_phone = preg_replace('/[^0-9]/', '', $phone);

@@ -39,10 +39,10 @@ try {
       'tables'=>(int)$database->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('events','participants','payments','activity_log')")->fetchColumn(),
     ], JSON_UNESCAPED_UNICODE);`});
   const migrationResult = JSON.parse(migrationRun.text);
-  assert.deepEqual(migrationResult.first, [1,2,3,4,5,6]);
+  assert.deepEqual(migrationResult.first, [1,2,3,4,5,6,7]);
   assert.deepEqual(migrationResult.second, []);
-  assert.equal(migrationResult.version, 6);
-  assert.equal(migrationResult.recorded, 6);
+  assert.equal(migrationResult.version, 7);
+  assert.equal(migrationResult.recorded, 7);
   assert.equal(migrationResult.tables, 4);
   assert.ok(migrationResult.client_tags.includes('VIP'));
   checks++;
@@ -271,6 +271,12 @@ try {
   assert.ok(normalizedParticipant.headers.location[0].includes('participant_added'));
   assert.equal(normalizedParticipant.data.participants.at(-1).status, 'Оплата на месте');
   checks++;
+  const decimalBooking = await page('event.php', {id:1}, {add_participant:1,client_name:'С копейками',phone:'+7 999 000-00-01',email:'',seats:1,price:'1234,56',source:'CRM',status:'Бронь',notes:''});
+  assert.equal(Number(decimalBooking.data.participants.at(-1).price),1234.56);
+  assert.ok(decimalBooking.headers.location[0].includes('participant_added'));
+  const decimalBookingPage = await page('event.php', {id:1}, {}, false, {setup:["UPDATE participants SET price=1234.56 WHERE id=1"]});
+  assert.ok(decimalBookingPage.html.includes('1 234,56 ₽'));
+  checks++;
   const calendar = await page('schedule.php', {ym:'2026-09'});
   assert.equal(Number(calendar.data.events_raw.find(e => e.id === 1).seats_count), 3);
   assert.ok(calendar.html.includes('role=\'button\' tabindex=\'0\''));
@@ -339,6 +345,7 @@ try {
   checks++;
   const analytics = await page('analytics.php', {date_from:'2026-09-01',date_to:'2026-09-30'});
   assert.equal(analytics.data.total_seats, 6);
+  assert.equal(analytics.data.total_expenses,750.75);
   assert.ok(analytics.html.includes('assets/analytics-workspace.css'));
   assert.ok(analytics.html.includes('Забронировано мест'));
   assert.ok(analytics.html.includes('01.09.2026 — 30.09.2026'));
@@ -346,6 +353,7 @@ try {
   assert.ok(analytics.html.includes('Фактический доход'));
   assert.ok(analytics.html.includes('Осталось собрать'));
   assert.ok(analytics.html.includes('Стоимость бронирований'));
+  assert.ok(analytics.html.includes('750,75 ₽'));
   checks++;
   const normalizedAnalytics = await page('analytics.php', {date_from:'2026-09-30',date_to:'2026-09-01',stat_year:'9999'});
   assert.equal(normalizedAnalytics.data.total_seats, 6);

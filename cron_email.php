@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/participant_seats.php';
+require_once __DIR__ . '/money_helpers.php';
 // cron_email.php
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
@@ -112,7 +113,7 @@ function renderTourCardHTML($ev, $pdo, $time_col) {
                 // Ищем стоимость
                 $p_amount = '';
                 foreach (['price', 'amount', 'sum', 'total', 'to_pay', 'payment', 'debt', 'cost'] as $col) {
-                    if (isset($p[$col]) && $p[$col] !== '') { $p_amount = "💰 " . number_format($p[$col], 0, '', ' ') . " ₽"; break; }
+                    if (isset($p[$col]) && $p[$col] !== '') { $p_amount = "💰 " . moneyFormat($p[$col]); break; }
                 }
 
                 // Стиль статуса

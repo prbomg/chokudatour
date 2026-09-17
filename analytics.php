@@ -4,6 +4,7 @@ error_reporting(E_ALL);
 
 require_once 'auth.php';
 require_once __DIR__ . '/participant_seats.php';
+require_once __DIR__ . '/money_helpers.php';
 $participant_seats_sql = participantSeatsSql($pdo, 'p');
 
 if ($current_user_role !== 'admin') {
@@ -30,7 +31,7 @@ $stmt_rev = $pdo->prepare("
 ");
 $stmt_rev->execute([$date_from, $date_to]);
 $rev_data = $stmt_rev->fetch(PDO::FETCH_ASSOC);
-$total_revenue = (int)($rev_data['total_revenue'] ?? 0);
+$total_revenue = moneyValue($rev_data['total_revenue'] ?? 0);
 $total_seats = (int)($rev_data['total_seats'] ?? 0);
 
 // Расходы
@@ -41,7 +42,7 @@ $stmt_exp = $pdo->prepare("
     WHERE e.tour_date BETWEEN ? AND ?
 ");
 $stmt_exp->execute([$date_from, $date_to]);
-$total_expenses = (int)($stmt_exp->fetchColumn() ?? 0);
+$total_expenses = moneyValue($stmt_exp->fetchColumn() ?? 0);
 
 // Чистая прибыль и Рентабельность
 $net_profit = $total_revenue - $total_expenses;
@@ -100,7 +101,8 @@ $stmt_top_tours->execute([$date_from, $date_to, $date_from, $date_to]);
 $top_tours = $stmt_top_tours->fetchAll(PDO::FETCH_ASSOC);
 
 foreach ($top_tours as &$tt) {
-    $tt['exp'] = (int)$tt['exp'];
+    $tt['rev'] = moneyValue($tt['rev']);
+    $tt['exp'] = moneyValue($tt['exp']);
     $tt['profit'] = $tt['rev'] - $tt['exp'];
     $tt['margin'] = $tt['rev'] > 0 ? round(($tt['profit'] / $tt['rev']) * 100, 1) : 0;
 }
@@ -383,15 +385,15 @@ if (!in_array($stat_year, $available_years)) {
     <div class="dash-grid">
         <div class="dash-card blue">
             <div class="dash-title">Стоимость бронирований</div>
-            <div class="dash-val"><?= number_format($total_revenue, 0, '', ' ') ?> ₽</div>
+            <div class="dash-val"><?= moneyFormat($total_revenue) ?></div>
         </div>
         <div class="dash-card expense">
             <div class="dash-title">Сумма расходов</div>
-            <div class="dash-val" style="color: #EF4444;"><?= number_format($total_expenses, 0, '', ' ') ?> ₽</div>
+            <div class="dash-val" style="color: #EF4444;"><?= moneyFormat($total_expenses) ?></div>
         </div>
         <div class="dash-card profit">
             <div class="dash-title">Чистая прибыль</div>
-            <div class="dash-val" style="color: #10B981;"><?= number_format($net_profit, 0, '', ' ') ?> ₽</div>
+            <div class="dash-val" style="color: #10B981;"><?= moneyFormat($net_profit) ?></div>
         </div>
         <div class="dash-card neutral">
             <div class="dash-title">Рентабельность</div>
@@ -406,16 +408,16 @@ if (!in_array($stat_year, $available_years)) {
     <section class="card finance-report">
         <div class="finance-report-heading"><div><span class="eyebrow">По статусу выездов</span><h3>Финансовый отчёт</h3><p>Предоплаты уменьшают сумму к сбору, а весь доход фиксируется после подтверждения выезда.</p></div><?php if ($finance_summary['pending_overdue']): ?><span class="finance-alert"><?= (int)$finance_summary['pending_overdue'] ?> требуют подтверждения</span><?php endif; ?></div>
         <div class="finance-summary">
-            <div><span>Фактический доход</span><strong><?= number_format($finance_summary['actual_revenue'], 0, '', ' ') ?> ₽</strong></div>
-            <div><span>Прогноз дохода</span><strong><?= number_format($finance_summary['forecast_revenue'], 0, '', ' ') ?> ₽</strong></div>
-            <div><span>Предоплаты активных выездов</span><strong><?= number_format($finance_summary['prepayments'], 0, '', ' ') ?> ₽</strong></div>
-            <div><span>Осталось собрать</span><strong><?= number_format($finance_summary['collect'], 0, '', ' ') ?> ₽</strong></div>
-            <div><span>Фактическая прибыль</span><strong><?= number_format($finance_summary['actual_profit'], 0, '', ' ') ?> ₽</strong></div>
+            <div><span>Фактический доход</span><strong><?= moneyFormat($finance_summary['actual_revenue']) ?></strong></div>
+            <div><span>Прогноз дохода</span><strong><?= moneyFormat($finance_summary['forecast_revenue']) ?></strong></div>
+            <div><span>Предоплаты активных выездов</span><strong><?= moneyFormat($finance_summary['prepayments']) ?></strong></div>
+            <div><span>Осталось собрать</span><strong><?= moneyFormat($finance_summary['collect']) ?></strong></div>
+            <div><span>Фактическая прибыль</span><strong><?= moneyFormat($finance_summary['actual_profit']) ?></strong></div>
         </div>
         <div class="table-responsive finance-table-wrap"><table class="finance-table"><thead><tr><th>Выезд</th><th>Статус</th><th>Бронирования</th><th>Предоплаты</th><th>Взять на месте</th><th>Расходы</th><th>Прибыль</th></tr></thead><tbody>
         <?php if (!$finance_events): ?><tr><td colspan="7" class="finance-empty">За выбранный период выездов нет</td></tr><?php endif; ?>
         <?php foreach ($finance_events as $row): $done=!empty($row['completed_at']); $overdue=!$done && $row['tour_date'] < date('Y-m-d'); ?>
-            <tr><td><a class="finance-event-link" href="event.php?id=<?= (int)$row['id'] ?>"><?= htmlspecialchars($row['tour_name']) ?></a><small><?= date('d.m.Y', strtotime($row['tour_date'])) ?><?= $row['time'] ? ' · '.htmlspecialchars(substr($row['time'],0,5)) : '' ?></small></td><td><span class="finance-status <?= $done?'completed':($overdue?'pending':'planned') ?>"><?= $done?'Проведён':($overdue?'Ждёт подтверждения':'Запланирован') ?></span></td><td><?= number_format($row['bookings'],0,'',' ') ?> ₽</td><td><?= number_format($row['prepayments'],0,'',' ') ?> ₽</td><td><?= $done?'—':number_format($row['collect'],0,'',' ').' ₽' ?></td><td><?= number_format($row['expenses'],0,'',' ') ?> ₽</td><td class="finance-profit <?= $row['profit'] < 0?'negative':'' ?>"><?= number_format($row['profit'],0,'',' ') ?> ₽<small><?= $done?'факт':'прогноз' ?></small></td></tr>
+            <tr><td><a class="finance-event-link" href="event.php?id=<?= (int)$row['id'] ?>"><?= htmlspecialchars($row['tour_name']) ?></a><small><?= date('d.m.Y', strtotime($row['tour_date'])) ?><?= $row['time'] ? ' · '.htmlspecialchars(substr($row['time'],0,5)) : '' ?></small></td><td><span class="finance-status <?= $done?'completed':($overdue?'pending':'planned') ?>"><?= $done?'Проведён':($overdue?'Ждёт подтверждения':'Запланирован') ?></span></td><td><?= moneyFormat($row['bookings']) ?></td><td><?= moneyFormat($row['prepayments']) ?></td><td><?= $done?'—':moneyFormat($row['collect']) ?></td><td><?= moneyFormat($row['expenses']) ?></td><td class="finance-profit <?= $row['profit'] < 0?'negative':'' ?>"><?= moneyFormat($row['profit']) ?><small><?= $done?'факт':'прогноз' ?></small></td></tr>
         <?php endforeach; ?>
         </tbody></table></div>
     </section>
@@ -438,7 +440,7 @@ if (!in_array($stat_year, $available_years)) {
                         <div class="bar-item">
                             <div class="bar-header">
                                 <span class="bar-name"><?= htmlspecialchars($src_name) ?></span>
-                                <span class="bar-stats"><strong><?= number_format($s['rev'], 0, '', ' ') ?> ₽</strong> (<?= $percent ?>%)</span>
+                                <span class="bar-stats"><strong><?= moneyFormat($s['rev']) ?></strong> (<?= $percent ?>%)</span>
                             </div>
                             <div class="bar-track">
                                 <div class="bar-fill" style="width: <?= $percent ?>%; background: <?= $color ?>;"></div>
@@ -490,8 +492,8 @@ if (!in_array($stat_year, $available_years)) {
                                         <span class="rank-num <?= $rank_class ?>"><?= $idx + 1 ?></span>
                                         <?= htmlspecialchars($tt['name']) ?>
                                     </td>
-                                    <td style="text-align:right; font-weight:700;"><?= number_format($tt['rev'], 0, '', ' ') ?> ₽</td>
-                                    <td style="text-align:right; font-weight:800; color:#10B981;"><?= number_format($tt['profit'], 0, '', ' ') ?> ₽</td>
+                                    <td style="text-align:right; font-weight:700;"><?= moneyFormat($tt['rev']) ?></td>
+                                    <td style="text-align:right; font-weight:800; color:#10B981;"><?= moneyFormat($tt['profit']) ?></td>
                                     <td style="text-align:center;"><span class="margin-badge <?= $badge_class ?>"><?= $tt['margin'] ?>%</span></td>
                                 </tr>
                                 <?php endforeach; ?>
@@ -525,7 +527,7 @@ if (!in_array($stat_year, $available_years)) {
                                         <?= htmlspecialchars($tg['guide'] ?: 'Без гида') ?>
                                     </td>
                                     <td style="text-align:center; color:var(--text-muted); font-weight: 500;"><?= $tg['pax'] ?></td>
-                                    <td style="text-align:right; font-weight:800; color:var(--primary);"><?= number_format($tg['rev'], 0, '', ' ') ?> ₽</td>
+                                    <td style="text-align:right; font-weight:800; color:var(--primary);"><?= moneyFormat($tg['rev']) ?></td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -593,13 +595,13 @@ if (!in_array($stat_year, $available_years)) {
                                 <?= $m_data['pax'] ?> чел.
                             </td>
                             <td style="text-align: right; font-weight: 600; color: var(--primary);">
-                                <?= number_format($m_data['rev'], 0, '', ' ') ?> ₽
+                                <?= moneyFormat($m_data['rev']) ?>
                             </td>
                             <td style="text-align: right; font-weight: 500; color: #EF4444;">
-                                <?= $m_data['exp'] > 0 ? '- ' . number_format($m_data['exp'], 0, '', ' ') . ' ₽' : '0 ₽' ?>
+                                <?= $m_data['exp'] > 0 ? '- ' . moneyFormat($m_data['exp']) : '0 ₽' ?>
                             </td>
                             <td style="text-align: right; font-weight: 800; color: <?= $profit_color ?>;">
-                                <?= number_format($m_data['profit'], 0, '', ' ') ?> ₽
+                                <?= moneyFormat($m_data['profit']) ?>
                             </td>
                         </tr>
                     <?php endfor; ?>
@@ -608,10 +610,10 @@ if (!in_array($stat_year, $available_years)) {
                     <tr>
                         <td style="color: var(--text-main);">Итого за год:</td>
                         <td style="text-align: center; color: var(--text-main);"><?= $yearly_totals['pax'] ?> чел.</td>
-                        <td style="text-align: right; color: var(--primary);"><?= number_format($yearly_totals['rev'], 0, '', ' ') ?> ₽</td>
-                        <td style="text-align: right; color: #EF4444;"><?= $yearly_totals['exp'] > 0 ? '- ' . number_format($yearly_totals['exp'], 0, '', ' ') . ' ₽' : '0 ₽' ?></td>
+                        <td style="text-align: right; color: var(--primary);"><?= moneyFormat($yearly_totals['rev']) ?></td>
+                        <td style="text-align: right; color: #EF4444;"><?= $yearly_totals['exp'] > 0 ? '- ' . moneyFormat($yearly_totals['exp']) : '0 ₽' ?></td>
                         <td style="text-align: right; color: <?= $yearly_totals['profit'] > 0 ? '#10B981' : ($yearly_totals['profit'] < 0 ? '#EF4444' : 'var(--text-main)') ?>;">
-                            <?= number_format($yearly_totals['profit'], 0, '', ' ') ?> ₽
+                            <?= moneyFormat($yearly_totals['profit']) ?>
                         </td>
                     </tr>
                 </tfoot>
